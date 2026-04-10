@@ -1,0 +1,2 @@
+/usr/bin/ar qc libdcc.a CMakeFiles/libdcc.dir/libdcc.cpp.o
+/usr/bin/ranlib libdcc.a

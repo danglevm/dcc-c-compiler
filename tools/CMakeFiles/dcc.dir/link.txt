@@ -1,0 +1,1 @@
+/usr/bin/c++ CMakeFiles/dcc.dir/dcc.cpp.o -o dcc  ../src/libdcc.a /usr/lib/x86_64-linux-gnu/libreadline.so 
