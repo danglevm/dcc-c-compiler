@@ -61,7 +61,6 @@ namespace dcc {
         }
     };
 
-    
     struct UnaryOperator : public Expr {
         virtual ~UnaryOperator() = default;
         ExprType getExprType() { return ExprType::UNARY; }
@@ -84,6 +83,7 @@ namespace dcc {
 
         char getUnaryOp() const { return '~'; }
         Expr * get_inner_expr() const { return _expr.get();}
+        ExprType getExprType() const override { return ExprType::UNARY; }
     };
 
     struct Negate : public UnaryOperator {
@@ -93,13 +93,14 @@ namespace dcc {
 
         void print(int indent = 0) const override {
             if (_expr && _unary_operator) {
-                std::cout << get_indent(indent) << ". Complement: \n ";
+                std::cout << get_indent(indent) << ". Negate: \n ";
                 _expr->print(indent + 1);
             }
         }
 
         char getUnaryOp() const { return '-'; }
         Expr * get_inner_expr() const { return _expr.get();}
+        ExprType getExprType() const override { return ExprType::UNARY; }
     };
 
     struct Statement : public ASTNode {

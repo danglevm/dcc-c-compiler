@@ -186,13 +186,12 @@ int main(int argc, char * argv[]) {
     }
 
     /* 4.2. generate Assembly IR from TACKY IR */
-
-    std::unique_ptr<assembly::IRProgram> ir = cg.generate(ast.get());
-
-
-
+    std::unique_ptr<assembly::IRProgram> ir = cg.generate(tacky_ir.get());
     /* code generation and emission */
-
+    if (codegen) {
+        if (fs::exists(pp_path)) fs::remove(pp_path);
+        return SUCCESS;
+    }
     std::string assembly = ir->code_gen();
 
     // fs::path("/home/dangle/dcc/build/test/writing-a-c-compiler-tests/tests/chapter_1/valid/");
@@ -205,8 +204,8 @@ int main(int argc, char * argv[]) {
     asm_file << ".section .note.GNU-stack,\"\",@progbits\n";
     asm_file.close();
     
-    // -S or --codegen flag
-    if (assemble_only || codegen) { 
+    // -S 
+    if (assemble_only) { 
         if (fs::exists(pp_path)) fs::remove(pp_path);
         return SUCCESS;
     }
@@ -218,6 +217,7 @@ int main(int argc, char * argv[]) {
 
     int link_result = run_command(link_args);
     if (fs::exists(pp_path)) fs::remove(pp_path);
+    if (fs::exists(asm_path)) fs::remove(asm_path);
 
     return link_result == 0 ? SUCCESS : FAILED;
 

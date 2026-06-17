@@ -5,8 +5,6 @@
 #include <iostream>
 #include <cassert>
 #include <charconv>
-
-
 #include <libdcc/parser.hpp>
 
 namespace {
