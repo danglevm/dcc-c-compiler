@@ -27,8 +27,11 @@ namespace dcc {
 
     enum class ExprType {
         CONSTANT,
-        UNARY
+        UNARY,
+        BINARY
     };
+
+    enum class BinaryOpType { Add, Sub, Mul, Div, Rem};
 /*
     Left side is broad categories, abstract base class
     Right side is the concrete subclass
@@ -101,6 +104,22 @@ namespace dcc {
         char getUnaryOp() const { return '-'; }
         Expr * get_inner_expr() const { return _expr.get();}
         ExprType getExprType() const override { return ExprType::UNARY; }
+    };
+
+    struct BinaryOperator : public Expr {
+        BinaryOpType _bin_op;
+        std::unique_ptr<Expr> _left_expr;
+        std::unique_ptr<Expr> _right_expr;
+
+        explicit BinaryOperator(BinaryOpType bin_op, 
+                                std::unique_ptr<Expr> left_expr,
+                                std::unique_ptr<Expr> right_expr) :
+                                _bin_op(bin_op), _left_expr(std::move(left_expr)), _right_expr(std::move(right_expr)) {};
+        ExprType getExprType() const override { return ExprType::BINARY; }
+        BinaryOpType getBinOp() const { return _bin_op; }
+        Expr * getLeftExpr() const { return _left_expr.get(); }
+        Expr * getRightExpr() const { return _right_expr.get(); }
+        void print(int indent) const override {};
     };
 
     struct Statement : public ASTNode {
@@ -213,15 +232,19 @@ namespace dcc {
             std::unique_ptr<Statement> statement();
 
             /* <exp> ::= <int> <identifier> ::= ? An identifier token ?*/
-            std::unique_ptr<Expr> expression();
-               
+            std::unique_ptr<Expr> parse_factor();
+
+            std::unique_ptr<Expr> parse_expr(int min_prec = 0);
+
             token consume(token_type type, std::string msg) {
                 if (check_token(type)) {
                     return advance();
                 }
 
                 throw std::runtime_error("Syntax Error: " + msg);
-            }
+            };
+                        
+            int get_precedence(token_type type);
 
     };
 }

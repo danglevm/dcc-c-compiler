@@ -92,8 +92,17 @@ namespace dcc {
                         return token{token_type::SUBTRACTION_EQUALS, _source.substr(start_pos, _pos - start_pos), start_line, start_col};
                     }
                 }
-                return token{token_type::NEGATION, "-", start_line, start_col};                
-        }
+
+                /* we call this MINUS, because both negation and subtraction uses the same sign */
+                return token{token_type::MINUS, "-", start_line, start_col};                
+            
+            case '*':
+                return token{token_type::MULTIPLICATION, "*", start_line, start_col};
+            case '/':
+                return token{token_type::DIVISION, "/", start_line, start_col};
+            case '%':
+                return token{token_type::REMAINDER, "%", start_line, start_col};
+        }   
         /* invalid case */
         return token{token_type::INVALID, _source.substr(start_pos, _pos - start_pos), start_line, start_col};
     }

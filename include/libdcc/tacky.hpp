@@ -15,8 +15,6 @@ function_definition = Function(identifier, 1 instruction* body)
 instruction = Return(val) | Unary(unary_operator, val src, val dst)
 val = Constant(int) | Var(identifier) 
 unary_operator = Complement | Negate
-
-
 */
 
 namespace tacky {
@@ -31,7 +29,16 @@ namespace tacky {
 
     enum class TackyInstructionType {
         RET,
-        UNARY
+        UNARY,
+        BINARY
+    };
+
+    enum class TackyBinaryOp {
+        ADD,
+        SUBTRACT,
+        MULTIPLY,
+        DIVIDE,
+        REMAINDER
     };
 
     /* need to think whether this should be virtual or not */
@@ -84,6 +91,16 @@ namespace tacky {
 
     };
 
+    struct TackyBinary : public TackyInstruction {
+        TackyBinaryOp _binary_op;
+        TackyVal _src1;
+        TackyVal _src2;
+        TackyVal _dst;
+        TackyBinary(TackyBinaryOp binary_op, TackyVal src1, TackyVal src2, TackyVal dst) :
+            _binary_op(binary_op), _src1(src1), _src2(src2), _dst(dst) {};
+        TackyInstructionType get_instruction_type() const { return TackyInstructionType::BINARY; }
+    };
+
     class TackyGen {
         private:
             size_t _tmp_counter = 0;
@@ -101,23 +118,18 @@ namespace tacky {
                 throw std::runtime_error("Unknown unary operator");
             }
 
-            TackyVal emit_tacky(dcc::Expr * expr) {
-                if (expr->getExprType() == dcc::ExprType::CONSTANT) {
-                    return TackyConstant{static_cast<dcc::Constant*>(expr)->_value};
-                } else if (expr->getExprType() == dcc::ExprType::UNARY) {
-                    auto unary = static_cast<dcc::UnaryOperator*>(expr);
-                    auto src = emit_tacky(unary->get_inner_expr());
-                    auto dst_name = make_temporary_name();
-                    auto dst = TackyVar{dst_name};
-                    auto tacky_op = unary->getUnaryOp();
-
-                    TackyUnaryOp unary_op = convert_unop(unary->getUnaryOp());
-
-                    _instructions.push_back(std::make_unique<TackyUnary>(unary_op, src, dst));
-                    return dst;
+            TackyBinaryOp convert_binop(dcc::BinaryOpType bin_op) {
+                switch(bin_op) {
+                    case dcc::BinaryOpType::Add: return TackyBinaryOp::ADD;
+                    case dcc::BinaryOpType::Sub: return TackyBinaryOp::SUBTRACT;
+                    case dcc::BinaryOpType::Mul: return TackyBinaryOp::MULTIPLY;
+                    case dcc::BinaryOpType::Div: return TackyBinaryOp::DIVIDE;
+                    case dcc::BinaryOpType::Rem: return TackyBinaryOp::REMAINDER;
                 }
-                return std::monostate {};
+                throw std::runtime_error("Unknown binary operator");
             }
+
+            TackyVal emit_tacky(dcc::Expr * expr);
 
         public:
             std::unique_ptr<TackyProgram> generate_tacky(const dcc::Program* ast) {

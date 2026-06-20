@@ -25,12 +25,16 @@ namespace dcc {
         ADDITION_EQUALS,
         SUBTRACTION,
         SUBTRACTION_EQUALS,
+        MULTIPLICATION,
+        DIVISION,
+        REMAINDER,
         INCREMENT,
         DECREMENT,
         ENDOFFILE,
         INVALID,
         COMPLEMENT,
-        NEGATION
+        NEGATION,
+        MINUS
     };
 
     struct token {
