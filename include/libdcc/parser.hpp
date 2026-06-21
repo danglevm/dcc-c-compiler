@@ -31,7 +31,10 @@ namespace dcc {
         BINARY
     };
 
-    enum class BinaryOpType { Add, Sub, Mul, Div, Rem};
+    enum class UnaryOpType { Complement, Negate, Not};
+
+    enum class BinaryOpType { Add, Sub, Mul, Div, Rem, And, Or, Equal, NotEqual, 
+                                LessThan, LessOrEqual, GreaterThan, GreaterOrEqual };
 /*
     Left side is broad categories, abstract base class
     Right side is the concrete subclass
@@ -65,45 +68,25 @@ namespace dcc {
     };
 
     struct UnaryOperator : public Expr {
-        virtual ~UnaryOperator() = default;
-        ExprType getExprType() { return ExprType::UNARY; }
-        virtual char getUnaryOp() const = 0;
-        virtual Expr * get_inner_expr() const = 0;
-    };
-
-    struct Complement : public UnaryOperator {
-        char _unary_operator;
+        UnaryOpType _unary_operator;
         std::unique_ptr<Expr> _expr;
-        explicit Complement(char unary_operator, std::unique_ptr<Expr> expr) 
+        explicit UnaryOperator(UnaryOpType unary_operator, std::unique_ptr<Expr> expr) 
             : _unary_operator(unary_operator), _expr(std::move(expr)){};
 
-        void print(int indent = 0) const override {
-            if (_expr && _unary_operator) {
-                std::cout << get_indent(indent) << ". Complement: \n ";
-                _expr->print(indent + 1);
-            }
-        }
-
-        char getUnaryOp() const { return '~'; }
+        UnaryOpType getUnaryOp() const { return _unary_operator;}
         Expr * get_inner_expr() const { return _expr.get();}
-        ExprType getExprType() const override { return ExprType::UNARY; }
-    };
+        ExprType getExprType() const { return ExprType::UNARY; }
 
-    struct Negate : public UnaryOperator {
-        char _unary_operator;
-        std::unique_ptr<Expr> _expr;
-        explicit Negate(char unary_operator, std::unique_ptr<Expr> expr) : _unary_operator(unary_operator), _expr(std::move(expr)){};
-
-        void print(int indent = 0) const override {
-            if (_expr && _unary_operator) {
-                std::cout << get_indent(indent) << ". Negate: \n ";
-                _expr->print(indent + 1);
+        void print (int indent = 0) const override {
+            if (_expr) {
+                switch(_unary_operator) {
+                    case UnaryOpType::Complement: std::cout << get_indent(indent) << ". Complement: \n ";
+                    case UnaryOpType::Negate: std::cout << get_indent(indent) << ". Negate: \n ";
+                    case UnaryOpType::Not: std::cout << get_indent(indent) << ". Not: \n ";
+                }
             }
+            _expr->print(indent + 1);
         }
-
-        char getUnaryOp() const { return '-'; }
-        Expr * get_inner_expr() const { return _expr.get();}
-        ExprType getExprType() const override { return ExprType::UNARY; }
     };
 
     struct BinaryOperator : public Expr {

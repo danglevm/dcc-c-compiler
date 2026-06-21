@@ -102,6 +102,39 @@ namespace dcc {
                 return token{token_type::DIVISION, "/", start_line, start_col};
             case '%':
                 return token{token_type::REMAINDER, "%", start_line, start_col};
+            case '!':
+                if (_pos < _source.length() && peek() == '=') {
+                    /* lesser equal case */
+                    advance();
+                    return token{token_type::NOT_EQUALITY, _source.substr(start_pos, _pos - start_pos), start_line, start_col};
+                } 
+                return token{token_type::NOT, "!", start_line, start_col};
+            case '<':
+                if (_pos < _source.length() && peek() == '=') {
+                    /* lesser equal case */
+                    advance();
+                    return token{token_type::LESSER_EQUAL, _source.substr(start_pos, _pos - start_pos), start_line, start_col};
+                } 
+                return token{token_type::LESSER, "<", start_line, start_col};
+            case '>':
+                if (_pos < _source.length() && peek() == '=') {
+                    /* lesser equal case */
+                    advance();
+                    return token{token_type::GREATER_EQUAL, _source.substr(start_pos, _pos - start_pos), start_line, start_col};
+                }
+                return token{token_type::GREATER, "<", start_line, start_col};
+            case '&':
+                if (_pos < _source.length() && peek() == '&') {
+                    /* lesser equal case */
+                    advance();
+                    return token{token_type::AND, _source.substr(start_pos, _pos - start_pos), start_line, start_col};
+                }
+            case '|':
+                if (_pos < _source.length() && peek() == '|') {
+                    /* lesser equal case */
+                    advance();
+                    return token{token_type::OR, _source.substr(start_pos, _pos - start_pos), start_line, start_col};
+                }
         }   
         /* invalid case */
         return token{token_type::INVALID, _source.substr(start_pos, _pos - start_pos), start_line, start_col};

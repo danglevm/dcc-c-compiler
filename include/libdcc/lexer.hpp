@@ -34,7 +34,15 @@ namespace dcc {
         INVALID,
         COMPLEMENT,
         NEGATION,
-        MINUS
+        MINUS,
+        NOT, //!
+        NOT_EQUALITY, //!=
+        AND, //&&
+        OR, //|| 
+        LESSER, //<
+        GREATER, //>
+        LESSER_EQUAL, //<=
+        GREATER_EQUAL //>=
     };
 
     struct token {

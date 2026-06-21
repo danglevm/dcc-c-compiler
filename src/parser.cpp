@@ -47,7 +47,7 @@ namespace dcc {
                 std::cerr << "Could not convert" << std::endl;
             }
             return std::make_unique<Constant>(i);
-        } else if (c.token == token_type::COMPLEMENT || c.token == token_type::MINUS) {
+        } else if (c.token == token_type::COMPLEMENT || c.token == token_type::MINUS || c.token == token_type::NOT) {
             auto unary_op = consume(c.token, "Expected unary operator");
             // auto inner_expr = expression();
             auto inner_expr = parse_factor();
@@ -55,8 +55,9 @@ namespace dcc {
                 throw std::runtime_error("Cannot parse inner expression");
             
             switch (c.token) {
-                case token_type::COMPLEMENT: return std::make_unique<Complement>('~', std::move(inner_expr));
-                case token_type::MINUS: return std::make_unique<Negate>('-', std::move(inner_expr));
+                case token_type::COMPLEMENT: return std::make_unique<UnaryOperator>(dcc::UnaryOpType::Complement, std::move(inner_expr));
+                case token_type::MINUS: return std::make_unique<UnaryOperator>(dcc::UnaryOpType::Negate, std::move(inner_expr));
+                case token_type::NOT: return std::make_unique<UnaryOperator>(dcc::UnaryOpType::Not, std::move(inner_expr));
             }
             
         } else if (c.token == token_type::OPEN_PARENTHESIS) {
@@ -90,6 +91,14 @@ namespace dcc {
                 case token_type::MULTIPLICATION: binary_op = BinaryOpType::Mul; break;
                 case token_type::DIVISION: binary_op = BinaryOpType::Div; break;
                 case token_type::REMAINDER: binary_op = BinaryOpType::Rem; break;
+                case token_type::AND: binary_op = BinaryOpType::And; break;
+                case token_type::OR: binary_op = BinaryOpType::Or; break;
+                case token_type::EQUALITY: binary_op = BinaryOpType::Equal; break;
+                case token_type::NOT_EQUALITY: binary_op =  BinaryOpType::NotEqual; break;
+                case token_type::LESSER: binary_op = BinaryOpType::LessThan; break;
+                case token_type::LESSER_EQUAL: binary_op = BinaryOpType::LessOrEqual; break;
+                case token_type::GREATER: binary_op = BinaryOpType::GreaterThan; break;
+                case token_type::GREATER_EQUAL: binary_op = BinaryOpType::GreaterOrEqual; break;
                 default: throw std::runtime_error("Unknown operator");
             } 
             auto right = parse_expr(get_precedence(op_token.token) + 1);
@@ -111,6 +120,18 @@ namespace dcc {
         case token_type::ADDITION:
         case token_type::MINUS:
             return 45; // Lower precedence
+        case token_type::LESSER:
+        case token_type::LESSER_EQUAL:
+        case token_type::GREATER:
+        case token_type::GREATER_EQUAL:
+            return 35;
+        case token_type::EQUALITY:
+        case token_type::NOT_EQUALITY:
+            return 30;
+        case token_type::AND:
+            return 10;
+        case token_type::OR:
+            return 5;
         default:
             return -1; // Not binary operator
     }
