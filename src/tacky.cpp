@@ -14,7 +14,6 @@ namespace tacky {
         auto tacky_op = unary->getUnaryOp();
 
         TackyUnaryOp unary_op = convert_unop(unary->getUnaryOp());
-
         _instructions.push_back(std::make_unique<TackyUnary>(unary_op, src, dst));
         return dst;
     } else if (expr->getExprType() == dcc::ExprType::BINARY) {

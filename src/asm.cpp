@@ -29,6 +29,35 @@ namespace assembly {
                     convert_op(unary_inst->_unary_op), 
                     convert_val(unary_inst->_dst)
                 ));
+            } else if (instr->get_instruction_type() == tacky::TackyInstructionType::BINARY) {
+                auto* binary_inst = static_cast<tacky::TackyBinary*>(instr.get());
+                if (binary_inst->_binary_op == tacky::TackyBinaryOp::DIVIDE || binary_inst->_binary_op == tacky::TackyBinaryOp::REMAINDER) {
+                    asm_instructions.push_back(std::make_unique<Mov>(
+                        convert_val(binary_inst->_src1), 
+                        std::make_unique<Register>(RegASM::AX)
+                    ));
+                    asm_instructions.push_back(std::make_unique<Cdq>());
+                    asm_instructions.push_back(std::make_unique<Idiv>(convert_val(binary_inst->_src2)));
+
+                    RegASM asm_reg = (binary_inst->_binary_op == tacky::TackyBinaryOp::DIVIDE) ? RegASM::AX : RegASM::DX; 
+
+                    asm_instructions.push_back(std::make_unique<Mov>(
+                        std::make_unique<Register>(asm_reg),
+                        convert_val(binary_inst->_dst)
+                    ));
+
+                } else {
+                    /* binary instruction with binary_operator, src2, dst */
+                    asm_instructions.push_back(std::make_unique<Mov>( 
+                        convert_val(binary_inst->_src1),
+                        convert_val(binary_inst->_dst)
+                    ));
+                    asm_instructions.push_back(std::make_unique<BinaryASM>(
+                        convert_op(binary_inst->_binary_op),
+                        convert_val(binary_inst->_src2),
+                        convert_val(binary_inst->_dst)
+                    ));
+                }
             }
         }
 

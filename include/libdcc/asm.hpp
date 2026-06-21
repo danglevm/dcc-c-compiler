@@ -29,9 +29,17 @@ namespace assembly {
         NEG
     };
 
+    enum class BinaryOpASM {
+        ADD,
+        SUB,
+        MULT
+    };
+
     enum class RegASM {
         AX,
-        R10
+        DX,
+        R10,
+        R11
     };
 
     enum class OperandASM {
@@ -63,7 +71,7 @@ namespace assembly {
 
     struct Immediate : public Operand {
         int _val = 0;
-        Immediate(const int val) :_val(val) {};
+        explicit Immediate(const int val) :_val(val) {};
 
         OperandASM getType() const override { return OperandASM::IMM; }
 
@@ -74,14 +82,16 @@ namespace assembly {
 
     struct Register : public Operand {
         RegASM _reg;
-        Register(RegASM reg) : _reg(reg){};
+        explicit Register(RegASM reg) : _reg(reg){};
         OperandASM getType() const override { return OperandASM::REG; }
 
         std::string code_gen() const override {
              /* x86 reg syntax */
             switch(_reg) {
                 case RegASM::AX: return "%eax";
+                case RegASM::DX: return "%edx";
                 case RegASM::R10: return "%r10d";
+                case RegASM::R11: return "%r11d";
             };
             
             return " ";
@@ -90,7 +100,7 @@ namespace assembly {
 
     struct Stack : public Operand {
         int _val = 0;
-        Stack(int val) : _val(val){};
+        explicit Stack(int val) : _val(val){};
         OperandASM getType() const override { return OperandASM::STACK; }
 
         std::string code_gen() const override {
@@ -100,7 +110,7 @@ namespace assembly {
 
     struct Pseudo : public Operand {
         std::string _identifier;
-        Pseudo(std::string id) : _identifier(std::move(id)) {}
+        explicit Pseudo(std::string id) : _identifier(std::move(id)) {}
         OperandASM getType() const override { return OperandASM::PSEUDO; }
         std::string code_gen() const override {
             return "";
@@ -131,7 +141,7 @@ namespace assembly {
     struct Mov : public Instruction {
         std::unique_ptr<Operand> _src;
         std::unique_ptr<Operand> _dest;
-        Mov(std::unique_ptr<Operand> src, std::unique_ptr<Operand> dest) 
+        explicit Mov(std::unique_ptr<Operand> src, std::unique_ptr<Operand> dest) 
             : _src(std::move(src)), _dest(std::move(dest)) {}
         std::string code_gen() const override {
             /* if they are both memory addresses, we need to route through %r10d register */
@@ -170,7 +180,7 @@ namespace assembly {
         UnaryOpASM _unary_op;
         std::unique_ptr<Operand> _operand;
 
-        UnaryASM(UnaryOpASM unary_op, std::unique_ptr<Operand> operand) : _unary_op(unary_op), _operand(std::move(operand)) {}
+        explicit UnaryASM(UnaryOpASM unary_op, std::unique_ptr<Operand> operand) : _unary_op(unary_op), _operand(std::move(operand)) {}
 
         std::string code_gen() const override { 
             switch (_unary_op) {
@@ -188,9 +198,84 @@ namespace assembly {
         }
     };
 
+    struct BinaryASM : public Instruction {
+        BinaryOpASM _binary_op;
+        std::unique_ptr<Operand> _op1;
+        std::unique_ptr<Operand> _op2;
+
+        explicit BinaryASM(BinaryOpASM binary_op, std::unique_ptr<Operand> op1, std::unique_ptr<Operand> op2) : 
+                _binary_op(binary_op), _op1(std::move(op1)), _op2(std::move(op2)) {};
+        
+        std::string code_gen() const override {
+            // Imul destination cannot be memory so route through %r11d.
+            if (_binary_op == BinaryOpASM::MULT && _op2->getType() == OperandASM::STACK) {
+                return "    movl " + _op2->code_gen() + ", %r11d\n"
+                       "    imull " + _op1->code_gen() + ", %r11d\n"
+                       "    movl %r11d, " + _op2->code_gen() + "\n";
+            }
+
+            if ((_binary_op == BinaryOpASM::ADD || _binary_op == BinaryOpASM::SUB) && 
+                _op1->getType() == OperandASM::STACK && _op2->getType() == OperandASM::STACK) {
+                std::string op_str = (_binary_op == BinaryOpASM::ADD) ? "addl" : "subl";
+            
+                //Add/Sub cannot have memory for BOTH source and destination so route through %r10d.
+                return "    movl " + _op1->code_gen() + ", %r10d\n"
+                       "    " + op_str + " %r10d, " + _op2->code_gen() + "\n";
+            }
+
+            /* standard behavior*/
+            switch (_binary_op) {
+                case BinaryOpASM::ADD:  return "    addl " + _op1->code_gen()+ "," + _op2->code_gen() + "\n";
+                case BinaryOpASM::SUB:  return "    subl " + _op1->code_gen()+ "," + _op2->code_gen() + "\n";                
+                case BinaryOpASM::MULT: return "    imull " + _op1->code_gen()+ "," + _op2->code_gen() + "\n";
+            }
+            return "";
+        }
+
+        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override { 
+            if (auto new_op1 = _op1->replace_pseudo(current_offset, offset_map)) {
+                _op1 = std::move(new_op1);
+            }
+
+            if (auto new_op2 = _op2->replace_pseudo(current_offset, offset_map)) {
+                _op2 = std::move(new_op2);
+            }
+        }
+    };
+
+    struct Idiv : public Instruction {
+        std::unique_ptr<Operand> _op;
+
+        explicit Idiv(std::unique_ptr<Operand> op) : _op(std::move(op)) {};
+
+        std::string code_gen() const override {
+            if (_op->getType() == OperandASM::IMM) {
+                /* operand is constant (Immediate), route through %r10d */
+                return "    movl " + _op->code_gen() + ", %r10d\n"
+                       "    idivl %r10d\n";
+            }
+            return "    idivl " + _op->code_gen() + "\n";
+        }
+
+        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override { 
+            if (auto new_op = _op->replace_pseudo(current_offset, offset_map)) {
+                _op = std::move(new_op);
+            }
+        }
+    };
+
+    /* sign extension */
+    struct Cdq : public Instruction {
+        std::string code_gen() const override {
+            return "    cdq\n";
+        }
+
+        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override { }
+    };
+
     struct AllocateStackASM : public Instruction {
         int _val = 0;
-        AllocateStackASM(int val) : _val(val) {};
+        explicit AllocateStackASM(int val) : _val(val) {};
         std::string code_gen() const override {
             return "    subq $" + std::to_string(_val) + ", %rsp\n";
         }
@@ -200,7 +285,7 @@ namespace assembly {
         int _stack_size = 0;
         std::string _name;
         std::vector<std::unique_ptr<Instruction>> _instructions;
-        IRFunction(std::string name, std::vector<std::unique_ptr<Instruction>> instructions) 
+        explicit IRFunction(std::string name, std::vector<std::unique_ptr<Instruction>> instructions) 
             : _name(name), _instructions(std::move(instructions)) {};
 
         std::string code_gen() const override {
@@ -217,7 +302,7 @@ namespace assembly {
 
     struct IRProgram : public ASMNode {
         std::unique_ptr<IRFunction> _function; 
-        IRProgram(std::unique_ptr<IRFunction> function) : _function(std::move(function)) {};
+        explicit IRProgram(std::unique_ptr<IRFunction> function) : _function(std::move(function)) {};
         std::string code_gen() const override {
             if (_function) { 
                 return _function->code_gen();
@@ -254,6 +339,17 @@ namespace assembly {
                 }
                 throw std::runtime_error("Unknown TackyUnaryOp");
             }
+
+            BinaryOpASM convert_op(const tacky::TackyBinaryOp& val) {
+                if (val == tacky::TackyBinaryOp::ADD) {
+                    return BinaryOpASM::ADD;
+                } else if (val == tacky::TackyBinaryOp::MULTIPLY) {
+                    return BinaryOpASM::MULT;
+                } else if (val == tacky::TackyBinaryOp::SUBTRACT) {
+                    return BinaryOpASM::SUB;
+                }
+                throw std::runtime_error("Unknown TackyBinaryOp");
+             }
     };
     
 }
