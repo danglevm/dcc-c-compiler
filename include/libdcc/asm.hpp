@@ -49,6 +49,15 @@ namespace assembly {
         STACK
     };
 
+    enum class CondCode {
+        E,
+        NE,
+        G,
+        GE,
+        L,
+        LE
+    };
+
     struct ASMNode {
         virtual ~ASMNode() = default;
 
@@ -174,7 +183,8 @@ namespace assembly {
             return out;
         }
 
-    void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}    };
+        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}    
+    };
 
     struct UnaryASM : public Instruction {
         UnaryOpASM _unary_op;
@@ -241,6 +251,63 @@ namespace assembly {
                 _op2 = std::move(new_op2);
             }
         }
+    };
+
+    struct Cmp : public Instruction {
+        std::unique_ptr<Operand> _op1;
+        std::unique_ptr<Operand> _op2;
+
+        explicit Cmp(std::unique_ptr<Operand> op1, std::unique_ptr<Operand> op2) 
+            : _op1(std::move(op1)), _op2(std::move(op2)) {};
+        std::string code_gen() const override {
+            if (_op1->getType() == OperandASM::STACK && _op2->getType() == OperandASM::STACK) {
+                return "    movl " + _op1->code_gen() + ", %r10d\n"
+                       "    cmpl %r10d, " + _op2->code_gen() + "\n";
+            }
+
+            if (_op2->getType() == OperandASM::IMM) {
+                return "    movl " + _op2->code_gen() + ", %r11d\n"
+                       "    cmpl " + _op1->code_gen() + ", %r11d\n";
+            }
+
+            return "    cmpl " + _op1->code_gen() + ", " + _op2->code_gen() + "\n";
+        }
+        
+        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}    
+    };
+
+    struct Jmp : public Instruction {
+        std::string _identifier;
+
+        explicit Jmp(std::string identifier) : _identifier(identifier) {};
+        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}  
+        std::string code_gen() const override {}  
+    };
+
+    struct JmpCC : public Instruction {
+        CondCode _cond_code;
+        std::string _identifier;
+
+        explicit JmpCC(CondCode cc, std::string identifier) : _cond_code(cc), _identifier(identifier) {};
+        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}  
+        std::string code_gen() const override {}  
+    };
+
+    struct SetCC : public Instruction {
+        CondCode _cond_code;
+        std::unique_ptr<Operand> _op;
+
+        explicit SetCC(CondCode cc, std::unique_ptr<Operand> op) : _cond_code(cc), _op(std::move(op)) {};
+        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}  
+        std::string code_gen() const override {}  
+    };
+
+    struct Label : public Instruction {
+        std::string _identifier;
+        explicit Label(std::string identifier) : _identifier(identifier) {};
+
+        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}    
+        std::string code_gen() const override {}  
     };
 
     struct Idiv : public Instruction {
