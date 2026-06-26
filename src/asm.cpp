@@ -8,7 +8,7 @@
 
 namespace assembly {
 
-    CondCode convert_to_condition_code(tacky::TackyBinaryOp op) {
+    inline CondCode convert_to_condition_code(tacky::TackyBinaryOp op) {
         switch (op) {
             case tacky::TackyBinaryOp::EQUAL:
                 return CondCode::E;  // Equal (ZF = 1)
@@ -32,7 +32,8 @@ namespace assembly {
                 throw std::runtime_error("Invalid operator passed to convert_condition_code: not a relational operator.");
         }
     }
-    bool is_relational_op(tacky::TackyBinaryOp op) {
+
+    inline bool is_relational_op(tacky::TackyBinaryOp op) {
         switch (op) {
             case tacky::TackyBinaryOp::EQUAL:
             case tacky::TackyBinaryOp::NOT_EQUAL:

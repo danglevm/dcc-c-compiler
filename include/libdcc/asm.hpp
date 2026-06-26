@@ -58,18 +58,31 @@ namespace assembly {
         LE
     };
 
+    inline std::string cc_to_string(CondCode cc) {
+        switch (cc) {
+            case CondCode::E:  return "e";
+            case CondCode::NE: return "ne";
+            case CondCode::G:  return "g";
+            case CondCode::GE: return "ge";
+            case CondCode::L:  return "l";
+            case CondCode::LE: return "le";
+        }
+        return "";
+    }
+
     struct ASMNode {
         virtual ~ASMNode() = default;
 
-        /* for pretty printing */
-        virtual std::string code_gen() const = 0;
+        /* for pretty printing - standard 32-bit 4 bytes*/
+        virtual std::string code_gen() const { return code_gen(4); }
+
+        virtual std::string code_gen(int size) const = 0;
     };
 
     struct Operand : public ASMNode {
         virtual ~Operand() = default;
 
-        virtual OperandASM getType() const = 0;
-        /* offset map for mapping temp variables back to their offset */
+        virtual OperandASM getType() const = 0;        /* offset map for mapping temp variables back to their offset */
         virtual std::unique_ptr<Operand> replace_pseudo (
             int& current_offset,
             std::unordered_map<std::string, int>& offset_map
@@ -84,7 +97,7 @@ namespace assembly {
 
         OperandASM getType() const override { return OperandASM::IMM; }
 
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             return "$" + std::to_string(_val); /* x86 imm syntax */
         }
     };
@@ -94,15 +107,23 @@ namespace assembly {
         explicit Register(RegASM reg) : _reg(reg){};
         OperandASM getType() const override { return OperandASM::REG; }
 
-        std::string code_gen() const override {
-             /* x86 reg syntax */
-            switch(_reg) {
-                case RegASM::AX: return "%eax";
-                case RegASM::DX: return "%edx";
-                case RegASM::R10: return "%r10d";
-                case RegASM::R11: return "%r11d";
-            };
-            
+        std::string code_gen(int size = 4) const override {
+            if (size == 1) {
+                switch(_reg) {
+                    case RegASM::AX:  return "%al";
+                    case RegASM::DX:  return "%dl";
+                    case RegASM::R10: return "%r10b";
+                    case RegASM::R11: return "%r11b"; 
+                    default: throw std::runtime_error("Invalid register for 1-byte access");
+                }
+            } else { 
+                switch(_reg) {
+                    case RegASM::AX:  return "%eax";
+                    case RegASM::DX:  return "%edx";
+                    case RegASM::R10: return "%r10d";
+                    case RegASM::R11: return "%r11d";
+                }
+            }
             return " ";
         }
     };
@@ -112,7 +133,7 @@ namespace assembly {
         explicit Stack(int val) : _val(val){};
         OperandASM getType() const override { return OperandASM::STACK; }
 
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             return std::to_string(_val) + "(%rbp)";
         }
     };
@@ -121,7 +142,7 @@ namespace assembly {
         std::string _identifier;
         explicit Pseudo(std::string id) : _identifier(std::move(id)) {}
         OperandASM getType() const override { return OperandASM::PSEUDO; }
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             return "";
         };
 
@@ -152,7 +173,7 @@ namespace assembly {
         std::unique_ptr<Operand> _dest;
         explicit Mov(std::unique_ptr<Operand> src, std::unique_ptr<Operand> dest) 
             : _src(std::move(src)), _dest(std::move(dest)) {}
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             /* if they are both memory addresses, we need to route through %r10d register */
             if (_src->getType() == OperandASM::STACK && _dest->getType() == OperandASM::STACK) {
                 return "    movl " + _src->code_gen() + ", %r10d\n"
@@ -176,7 +197,7 @@ namespace assembly {
     };
 
     struct Ret : public Instruction {
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             std::string out = "    movq  %rbp, %rsp\n";
             out += "    popq  %rbp\n";
             out += "    ret\n";
@@ -192,7 +213,7 @@ namespace assembly {
 
         explicit UnaryASM(UnaryOpASM unary_op, std::unique_ptr<Operand> operand) : _unary_op(unary_op), _operand(std::move(operand)) {}
 
-        std::string code_gen() const override { 
+        std::string code_gen(int size = 4) const override { 
             switch (_unary_op) {
                 case UnaryOpASM::NOT: return "    notl " + _operand->code_gen() + "\n";
                 case UnaryOpASM::NEG: return "    negl " + _operand->code_gen() + "\n";
@@ -216,7 +237,7 @@ namespace assembly {
         explicit BinaryASM(BinaryOpASM binary_op, std::unique_ptr<Operand> op1, std::unique_ptr<Operand> op2) : 
                 _binary_op(binary_op), _op1(std::move(op1)), _op2(std::move(op2)) {};
         
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             // Imul destination cannot be memory so route through %r11d.
             if (_binary_op == BinaryOpASM::MULT && _op2->getType() == OperandASM::STACK) {
                 return "    movl " + _op2->code_gen() + ", %r11d\n"
@@ -259,7 +280,7 @@ namespace assembly {
 
         explicit Cmp(std::unique_ptr<Operand> op1, std::unique_ptr<Operand> op2) 
             : _op1(std::move(op1)), _op2(std::move(op2)) {};
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             if (_op1->getType() == OperandASM::STACK && _op2->getType() == OperandASM::STACK) {
                 return "    movl " + _op1->code_gen() + ", %r10d\n"
                        "    cmpl %r10d, " + _op2->code_gen() + "\n";
@@ -273,7 +294,15 @@ namespace assembly {
             return "    cmpl " + _op1->code_gen() + ", " + _op2->code_gen() + "\n";
         }
         
-        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}    
+        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {
+            if (auto new_op1 = _op1->replace_pseudo(current_offset, offset_map)) {
+                _op1 = std::move(new_op1);
+            }
+
+            if (auto new_op2 = _op2->replace_pseudo(current_offset, offset_map)) {
+                _op2 = std::move(new_op2);
+            }
+        }    
     };
 
     struct Jmp : public Instruction {
@@ -281,7 +310,9 @@ namespace assembly {
 
         explicit Jmp(std::string identifier) : _identifier(identifier) {};
         void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}  
-        std::string code_gen() const override {}  
+        std::string code_gen(int size = 4) const override {
+            return "    jmp .L" + _identifier + "\n";
+        }  
     };
 
     struct JmpCC : public Instruction {
@@ -290,7 +321,9 @@ namespace assembly {
 
         explicit JmpCC(CondCode cc, std::string identifier) : _cond_code(cc), _identifier(identifier) {};
         void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}  
-        std::string code_gen() const override {}  
+        std::string code_gen(int size = 4) const override {
+            return "    j" + cc_to_string(_cond_code) + " .L" + _identifier + "\n";
+        }  
     };
 
     struct SetCC : public Instruction {
@@ -298,8 +331,16 @@ namespace assembly {
         std::unique_ptr<Operand> _op;
 
         explicit SetCC(CondCode cc, std::unique_ptr<Operand> op) : _cond_code(cc), _op(std::move(op)) {};
-        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}  
-        std::string code_gen() const override {}  
+        void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {
+            if (auto new_op = _op->replace_pseudo(current_offset, offset_map)) {
+                _op = std::move(new_op);
+            }
+        }  
+
+        std::string code_gen(int size = 4) const override {
+            /* explicitly requests 1-byte representation */
+            return "    set" + cc_to_string(_cond_code) + " " + _op->code_gen(1) + "\n";
+        }  
     };
 
     struct Label : public Instruction {
@@ -307,7 +348,9 @@ namespace assembly {
         explicit Label(std::string identifier) : _identifier(identifier) {};
 
         void allocate_pseudo(int& current_offset, std::unordered_map<std::string, int>& offset_map) override {}    
-        std::string code_gen() const override {}  
+        std::string code_gen(int size = 4) const override {
+            return ".L" + _identifier + ":\n";
+        } 
     };
 
     struct Idiv : public Instruction {
@@ -315,7 +358,7 @@ namespace assembly {
 
         explicit Idiv(std::unique_ptr<Operand> op) : _op(std::move(op)) {};
 
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             if (_op->getType() == OperandASM::IMM) {
                 /* operand is constant (Immediate), route through %r10d */
                 return "    movl " + _op->code_gen() + ", %r10d\n"
@@ -333,7 +376,7 @@ namespace assembly {
 
     /* sign extension */
     struct Cdq : public Instruction {
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             return "    cdq\n";
         }
 
@@ -343,7 +386,7 @@ namespace assembly {
     struct AllocateStackASM : public Instruction {
         int _val = 0;
         explicit AllocateStackASM(int val) : _val(val) {};
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             return "    subq $" + std::to_string(_val) + ", %rsp\n";
         }
     };
@@ -355,7 +398,7 @@ namespace assembly {
         explicit IRFunction(std::string name, std::vector<std::unique_ptr<Instruction>> instructions) 
             : _name(name), _instructions(std::move(instructions)) {};
 
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             std::string out = ".globl " + _name + "\n";
             out += _name + ":\n";
             out += "    pushq %rbp\n";
@@ -370,7 +413,7 @@ namespace assembly {
     struct IRProgram : public ASMNode {
         std::unique_ptr<IRFunction> _function; 
         explicit IRProgram(std::unique_ptr<IRFunction> function) : _function(std::move(function)) {};
-        std::string code_gen() const override {
+        std::string code_gen(int size = 4) const override {
             if (_function) { 
                 return _function->code_gen();
             }
