@@ -1,4 +1,4 @@
-add_library(libdcc lexer.cpp parser.cpp asm.cpp tacky.cpp)
+add_library(libdcc lexer.cpp parser.cpp asm.cpp tacky.cpp semantic.cpp)
 add_library(dcc::libdcc ALIAS libdcc)
 
 set_target_properties(

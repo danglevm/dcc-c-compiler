@@ -5,6 +5,7 @@
 #include <iostream>
 #include <cassert>
 #include <charconv>
+#include <string>
 #include <libdcc/parser.hpp>
 
 namespace dcc {
@@ -17,27 +18,79 @@ namespace dcc {
         consume(token_type::CLOSE_PARENTHESIS, "Expected ')'");
 
         consume(token_type::OPEN_BRACE, "Expected '{'");
-        auto stmt = statement();
+
+        std::vector<std::unique_ptr<BlockItem>> function_body;
+
+        while (peek().token != token_type::CLOSE_BRACE) {
+            function_body.push_back(parse_block_item());
+        }
 
         consume(token_type::CLOSE_BRACE, "Expected: '}");
 
-        auto func = std::make_unique<Function>(identifier_token.text, std::move(stmt));
+        auto func = std::make_unique<Function>(identifier_token.text, std::move(function_body));
         return func;
     }
 
+    std::unique_ptr<BlockItem> Parser::parse_block_item() {
+        if (peek().token == token_type::INT_KEYWORD) {
+            return declaration(); // Returns a Declaration AST node
+        } else {
+            return statement();   // Returns a Statement AST node
+        }
+    }
+
     std::unique_ptr<Statement> Parser::statement() {
-        consume(token_type::RETURN_KEYWORD, "Expected 'return' keyword");
+        /* return statement */
+        if (peek().token == token_type::RETURN_KEYWORD) {
+            consume(token_type::RETURN_KEYWORD, "Expected 'return' keyword");
+            
+            std::unique_ptr<Expr> expr = nullptr;        
+            if (peek().token != token_type::SEMICOLON) {
+                expr = parse_expr();
+                if (!expr) {
+                    throw std::runtime_error("Cannot parse expression for return");
+                }
+            }
+            consume(token_type::SEMICOLON, "Expected semicolon");
+            return std::make_unique<ReturnStmt>(std::move(expr));
+        } 
 
-        auto expr = parse_expr();   
-        if (!expr)
-                throw std::runtime_error("Cannot parse inner expression");
+        /* deal with return; which is a null return statement */
+        else if (peek().token == token_type::SEMICOLON) {
+            consume(token_type::SEMICOLON, "Expected semicolon");
+            return std::make_unique<NullStmt>();
+        }
+        
+        else {
+            auto expr = parse_expr();
+            if (!expr) {
+                throw std::runtime_error("Cannot parse expression for return statement");
+            }
+            consume(token_type::SEMICOLON, "Expected semicolon");
+            return std::make_unique<ExpressionStmt>(std::move(expr));
+        }
 
+    }
+
+    std::unique_ptr<Declaration> Parser::declaration() {
+        consume(token_type::INT_KEYWORD, "Expected 'int' in declaration");
+        auto identifier_token = consume(token_type::IDENTIFIER, "Expected function name");
+
+        std::unique_ptr<Expr> expr = nullptr;
+        if (peek().token == token_type::ASSIGNMENT) {
+            consume(token_type::ASSIGNMENT, "Expected assignment in declaration");
+            expr = parse_expr();
+            if (!expr) {
+                throw std::runtime_error("Cannot parse expression for declaration");
+            }
+        }
         consume(token_type::SEMICOLON, "Expected semicolon");
-        return std::make_unique<ReturnStmt>(std::move(expr));
+        return std::make_unique<DeclarationVariable>(identifier_token.text, std::move(expr));
     }
 
     std::unique_ptr<Expr> Parser::parse_factor() {
         auto c = peek();
+        /* a constant */
         if (c.token == token_type::CONSTANT) {
             consume(token_type::CONSTANT, "Expected constant expression");
             int i;
@@ -47,7 +100,15 @@ namespace dcc {
                 std::cerr << "Could not convert" << std::endl;
             }
             return std::make_unique<Constant>(i);
-        } else if (c.token == token_type::COMPLEMENT || c.token == token_type::MINUS || c.token == token_type::NOT) {
+
+            /* unary operator*/
+        } else if (c.token == token_type::IDENTIFIER) {
+            auto identifier_token = consume(token_type::IDENTIFIER, "Expected identifier");
+
+            return std::make_unique<Var>(identifier_token.text);
+        }
+        
+        else if (c.token == token_type::COMPLEMENT || c.token == token_type::MINUS || c.token == token_type::NOT) {
             auto unary_op = consume(c.token, "Expected unary operator");
             // auto inner_expr = expression();
             auto inner_expr = parse_factor();
@@ -60,6 +121,7 @@ namespace dcc {
                 case token_type::NOT: return std::make_unique<UnaryOperator>(dcc::UnaryOpType::Not, std::move(inner_expr));
             }
             
+            /* expression within */
         } else if (c.token == token_type::OPEN_PARENTHESIS) {
             /* "(" <expr> ")"*/
             consume(token_type::OPEN_PARENTHESIS, "Expected open parenthesis");
@@ -81,33 +143,39 @@ namespace dcc {
         if (!left) return nullptr;
         auto c = peek();
         while (get_precedence(c.token) >= min_prec) {
-            auto op_token = consume(c.token, "Expected operator");
-            BinaryOpType binary_op;
+            if (c.token == token_type::ASSIGNMENT) {
+                consume(token_type::ASSIGNMENT, "Expected '='");
+                auto right = parse_expr(0);
+                if (!right) throw std::runtime_error("Expected expression after assignment operator");
+                left = std::make_unique<Assignment>(std::move(left), std::move(right));
+            } else {
+                auto op_token = consume(c.token, "Expected operator");
+                BinaryOpType binary_op;
 
-            /* Contextually it must be a unary negation */
-            switch (op_token.token) {
-                case token_type::ADDITION: binary_op = BinaryOpType::Add; break;
-                case token_type::MINUS: binary_op = BinaryOpType::Sub; break;
-                case token_type::MULTIPLICATION: binary_op = BinaryOpType::Mul; break;
-                case token_type::DIVISION: binary_op = BinaryOpType::Div; break;
-                case token_type::REMAINDER: binary_op = BinaryOpType::Rem; break;
-                case token_type::AND: binary_op = BinaryOpType::And; break;
-                case token_type::OR: binary_op = BinaryOpType::Or; break;
-                case token_type::EQUALITY: binary_op = BinaryOpType::Equal; break;
-                case token_type::NOT_EQUALITY: binary_op =  BinaryOpType::NotEqual; break;
-                case token_type::LESSER: binary_op = BinaryOpType::LessThan; break;
-                case token_type::LESSER_EQUAL: binary_op = BinaryOpType::LessOrEqual; break;
-                case token_type::GREATER: binary_op = BinaryOpType::GreaterThan; break;
-                case token_type::GREATER_EQUAL: binary_op = BinaryOpType::GreaterOrEqual; break;
-                default: throw std::runtime_error("Unknown operator");
-            } 
-            auto right = parse_expr(get_precedence(op_token.token) + 1);
-            if (!right) throw std::runtime_error("Expected expression after operator");
+                /* Contextually it must be a unary negation */
+                switch (op_token.token) {
+                    case token_type::ADDITION: binary_op = BinaryOpType::Add; break;
+                    case token_type::MINUS: binary_op = BinaryOpType::Sub; break;
+                    case token_type::MULTIPLICATION: binary_op = BinaryOpType::Mul; break;
+                    case token_type::DIVISION: binary_op = BinaryOpType::Div; break;
+                    case token_type::REMAINDER: binary_op = BinaryOpType::Rem; break;
+                    case token_type::AND: binary_op = BinaryOpType::And; break;
+                    case token_type::OR: binary_op = BinaryOpType::Or; break;
+                    case token_type::EQUALITY: binary_op = BinaryOpType::Equal; break;
+                    case token_type::NOT_EQUALITY: binary_op =  BinaryOpType::NotEqual; break;
+                    case token_type::LESSER: binary_op = BinaryOpType::LessThan; break;
+                    case token_type::LESSER_EQUAL: binary_op = BinaryOpType::LessOrEqual; break;
+                    case token_type::GREATER: binary_op = BinaryOpType::GreaterThan; break;
+                    case token_type::GREATER_EQUAL: binary_op = BinaryOpType::GreaterOrEqual; break;
+                    default: throw std::runtime_error("Unknown operator");
+                } 
+                auto right = parse_expr(get_precedence(op_token.token) + 1);
+                if (!right) throw std::runtime_error("Expected expression after operator");
 
-            left = std::make_unique<BinaryOperator>(binary_op, std::move(left), std::move(right));
+                left = std::make_unique<BinaryOperator>(binary_op, std::move(left), std::move(right));
+            }
             c = peek();
         }
-
         return left;
     }
 
@@ -132,6 +200,8 @@ namespace dcc {
             return 10;
         case token_type::OR:
             return 5;
+        case token_type::ASSIGNMENT:
+            return 1;
         default:
             return -1; // Not binary operator
     }

@@ -12,6 +12,7 @@
 #include <libdcc/parser.hpp>
 #include <libdcc/asm.hpp>
 #include <libdcc/tacky.hpp>
+#include <libdcc/semantic.hpp>
 
 namespace fs = std::filesystem;
 
@@ -77,6 +78,7 @@ int main(int argc, char * argv[]) {
     bool parse = false;
     bool codegen = false;
     bool tacky = false;
+    bool validate = false;
 
     app.add_option("input", input_file, "Path to .c file")
         ->required()
@@ -87,6 +89,7 @@ int main(int argc, char * argv[]) {
     app.add_flag("--lex", lex, "Directs to run lexer but stops before parsing");
     app.add_flag("--parse", parse, "Directs to run parser but stops before asm generation");
     app.add_flag("--tacky", tacky, "Directs to run tacky generation");
+    app.add_flag("--validate", validate, "Directs to run variable resolution");
     app.add_flag("--codegen", codegen, "Directs to run lexing, parsing, and asm generation but stops before parsing");
 
     CLI11_PARSE(app, argc, argv);
@@ -170,6 +173,15 @@ int main(int argc, char * argv[]) {
     ast->print();
 
     if (parse) {
+        if (fs::exists((pp_path))) fs::remove(pp_path);
+        return SUCCESS;
+    }
+
+    /* semantic analysis, type checking, lookups, scope resolution */
+    dcc::SemanticAnalyzer analyzer;
+    auto resolved_ast = analyzer.resolve_program(ast.get());
+
+    if (validate) {
         if (fs::exists((pp_path))) fs::remove(pp_path);
         return SUCCESS;
     }

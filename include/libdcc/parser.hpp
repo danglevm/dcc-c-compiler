@@ -27,8 +27,16 @@ namespace dcc {
 
     enum class ExprType {
         CONSTANT,
+        VAR,
         UNARY,
-        BINARY
+        BINARY,
+        ASSIGNMENT
+    };
+
+    enum class StatementType {
+        RETURN,
+        EXPRESSION,
+        NULL_STMT
     };
 
     enum class UnaryOpType { Complement, Negate, Not};
@@ -43,6 +51,10 @@ namespace dcc {
     function_definition = Function(identifier name, statement body) 
     statement = Return(exp)
     exp = Constant(int)
+    declaration
+
+    Declaration is different from statements; declarations are not statements, because statements are executed when program runs
+    while declarations tell the compiler a statement exist and can be used later.
 */
     struct ASTNode {
         virtual ~ASTNode() = default;
@@ -105,9 +117,38 @@ namespace dcc {
         void print(int indent) const override {};
     };
 
-    struct Statement : public ASTNode {
+    struct Var : public Expr {
+        std::string_view _identifier;
+
+        explicit Var(std::string_view identifier) : _identifier(identifier) {};
+        std::string_view get_identifier() { return _identifier; }
+        ExprType getExprType() const override { return ExprType::VAR; }
+        void print(int indent) const override {};
+    };
+
+    struct Assignment : public Expr {
+        std::unique_ptr<Expr> _left_expr;
+        std::unique_ptr<Expr> _right_expr;
+
+        explicit Assignment(std::unique_ptr<Expr> left_expr, std::unique_ptr<Expr> right_expr) : 
+                        _left_expr(std::move(left_expr)), _right_expr(std::move(right_expr)) {};
+
+        Expr * getLeftExpr() const { return _left_expr.get(); }
+        Expr * getRightExpr() const { return _right_expr.get(); }
+        ExprType getExprType() const override { return ExprType::ASSIGNMENT; }
+        void print(int indent) const override {};
+    };
+
+    struct BlockItem : public ASTNode {
+        void print(int indent = 0) const override {};
+    };
+
+    struct Statement : public BlockItem {
         virtual ~Statement() = default;
         virtual Expr * get_expr() const = 0;
+        virtual StatementType get_statement_type() const = 0;
+
+        void print(int indent = 0) const override {};
     };
 
     struct ReturnStmt : public Statement {
@@ -120,23 +161,53 @@ namespace dcc {
             }
         }
 
-        Expr * get_expr() const { return _expr.get(); }
+        Expr * get_expr() const override { return _expr.get(); }
+        StatementType get_statement_type() const override { return StatementType::RETURN; }
+    };
 
+    struct ExpressionStmt : public Statement {
+        std::unique_ptr<Expr> _expr;
+        explicit ExpressionStmt(std::unique_ptr<Expr> expr) : _expr(std::move(expr)){};
+        void print(int indent = 0) const override {};
+
+        Expr * get_expr() const override { return _expr.get(); }
+        StatementType get_statement_type() const override { return StatementType::EXPRESSION; }
+    };
+
+    struct NullStmt : public Statement {
+        void print(int indent = 0) const override {};
+        Expr * get_expr() const override { return nullptr; }
+        StatementType get_statement_type() const override { return StatementType::NULL_STMT; }
+    };
+    
+    struct Declaration : public BlockItem {
+        virtual ~Declaration() = default;
+        void print(int indent = 0) const override {};
+    };
+
+    struct DeclarationVariable : public Declaration {
+        std::string_view _identifier;
+        std::unique_ptr<Expr> _initializer;
+
+        explicit DeclarationVariable(std::string_view identifier, std::unique_ptr<Expr> initializer = nullptr) 
+            : _identifier(std::move(identifier)), _initializer(std::move(initializer)) {}
+        
+        void print(int indent = 0) const override {};
     };
 
     struct Function : public ASTNode {
         std::string_view _identifier;
-        std::unique_ptr<Statement> _stmt;
-        explicit Function(const std::string_view identifier, std::unique_ptr<Statement> stmt) :
-            _identifier(std::move(identifier)), _stmt(std::move(stmt)){};
+        std::vector<std::unique_ptr<BlockItem>> _block_items;
+        explicit Function(const std::string_view identifier, std::vector<std::unique_ptr<BlockItem>> block_items) :
+            _identifier(std::move(identifier)), _block_items(std::move(block_items)){};
         void print(int indent = 0) const override {
             std::cout << get_indent(indent) << "Function Declaration: " << _identifier << "\n";
             std::cout << get_indent(indent + 1) << "Returns: int\n";
             std::cout << get_indent(indent + 1) << "Body:\n";
             
-            if (_stmt) {
-                _stmt->print(indent + 2);
-            }
+            // if (_stmt) {
+            //     _stmt->print(indent + 2);
+            // }
         }
     };
 
@@ -216,6 +287,10 @@ namespace dcc {
 
             /* <exp> ::= <int> <identifier> ::= ? An identifier token ?*/
             std::unique_ptr<Expr> parse_factor();
+
+            std::unique_ptr<BlockItem> parse_block_item();
+
+            std::unique_ptr<Declaration> declaration();
 
             std::unique_ptr<Expr> parse_expr(int min_prec = 0);
 

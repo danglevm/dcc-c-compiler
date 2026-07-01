@@ -194,10 +194,14 @@ namespace tacky {
         public:
             std::unique_ptr<TackyProgram> generate_tacky(const dcc::Program* ast) {
                 const auto* func = ast->_function_definition.get();
-                auto* stmt = func->_stmt.get();
                 std::string identifier = std::string{func->_identifier};
+                auto* last_item = func->_block_items.back().get();
+    
+                // Use dynamic_cast to ensure it is actually a ReturnStmt
+                auto* return_stmt = dynamic_cast<dcc::ReturnStmt*>(last_item);
+                
 
-                TackyVal ret_val = emit_tacky(stmt->get_expr());
+                TackyVal ret_val = emit_tacky(return_stmt->get_expr());
 
                 /* add the final return instruction */
                 _instructions.push_back(std::make_unique<TackyReturn>(ret_val));
