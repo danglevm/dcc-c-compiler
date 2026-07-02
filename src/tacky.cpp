@@ -4,6 +4,18 @@ namespace tacky {
     TackyVal TackyGen::emit_tacky(dcc::Expr * expr) {
         if (expr->getExprType() == dcc::ExprType::CONSTANT) {
             return TackyConstant{static_cast<dcc::Constant*>(expr)->_value};
+        } else if (expr->getExprType() == dcc::ExprType::VAR) {
+            auto var = static_cast<dcc::Var*>(expr);
+            return TackyVar{std::string(var->get_identifier())};
+        } else if (expr->getExprType() == dcc::ExprType::ASSIGNMENT) {
+            auto assign = static_cast<dcc::Assignment*>(expr);
+            TackyVal result = emit_tacky(assign->_right_expr.get());
+            
+            auto var = static_cast<dcc::Var*>(assign->_left_expr.get());
+            TackyVal dst = TackyVar{std::string(var->_identifier)};
+            _instructions.push_back(std::make_unique<TackyCopy>(result, dst));
+            
+            return dst;
         } else if (expr->getExprType() == dcc::ExprType::UNARY) {
             auto unary = static_cast<dcc::UnaryOperator*>(expr);
             auto src = emit_tacky(unary->get_inner_expr());
@@ -81,5 +93,56 @@ namespace tacky {
             }
         } 
         return std::monostate {};
+    }
+
+    void TackyGen::emit_tacky_for_block_item(dcc::BlockItem* item) {
+        if (auto* decl = dynamic_cast<dcc::DeclarationVariable*>(item)) {
+            /* if there's an initializer, emit instructions to calculate and copy it */
+            if (decl->_initializer != nullptr) {
+                TackyVal result = emit_tacky(decl->_initializer.get());
+                TackyVal dst = TackyVar{std::string(decl->_identifier)};
+                // a.1 = tmp.2
+                _instructions.push_back(std::make_unique<TackyCopy>(result, dst));
+            }
+        //If no initializer (int b;), fall through and do nothing
+        }
+
+        else if (auto* stmt = dynamic_cast<dcc::Statement*>(item)) {
+            emit_tacky_for_statement(stmt);
+        }
+    }
+
+    void TackyGen::emit_tacky_for_statement(dcc::Statement* stmt) {
+        if (!stmt) return;
+        switch (stmt->get_statement_type()) {
+            case dcc::StatementType::RETURN: {
+                TackyVal result = emit_tacky(stmt->get_expr()); //evaluate right hand side expr
+                _instructions.push_back(std::make_unique<TackyReturn>(result));
+                break;
+            }
+            case dcc::StatementType::EXPRESSION: {
+                // Evaluate the expression for its side effects (like assignments), 
+                // but ignore the returned TackyVal because no one is using it.
+                emit_tacky(stmt->get_expr());
+                break;
+            }
+            /* do nothing */
+            case dcc::StatementType::NULL_STMT: {
+                break;
+            }
+            default:
+                throw std::runtime_error("Unknown statement type in TACKY generation.");
+        }
+    }
+
+    void TackyGen::emit_tacky_function(dcc::Function* func) {
+        if (!func) return;
+
+        for (const auto& block_item : func->_block_items) {
+            emit_tacky_for_block_item(block_item.get());
+        }
+
+        /* unconditionally append a Return(0) case. If programmer forgets, this saves us. If they did return, CPU doesn't reach this */
+        _instructions.push_back(std::make_unique<TackyReturn>(TackyConstant{0}));
     }
 }

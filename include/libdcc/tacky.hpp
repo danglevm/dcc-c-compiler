@@ -56,10 +56,12 @@ namespace tacky {
     /* need to think whether this should be virtual or not */
     struct TackyVar {
         std::string _identifier;
+        explicit TackyVar(std::string identifier) : _identifier(identifier) {};
     };
 
     struct TackyConstant {
         int _val;
+        explicit TackyConstant(int val) : _val(val) {};
     };
 
     using TackyVal = std::variant<std::monostate, TackyConstant, TackyVar>;
@@ -190,23 +192,18 @@ namespace tacky {
             }
 
             TackyVal emit_tacky(dcc::Expr * expr);
+            void emit_tacky_for_block_item(dcc::BlockItem* item);
+            void emit_tacky_for_statement(dcc::Statement* stmt);
+            void emit_tacky_function(dcc::Function* func);
 
         public:
             std::unique_ptr<TackyProgram> generate_tacky(const dcc::Program* ast) {
-                const auto* func = ast->_function_definition.get();
-                std::string identifier = std::string{func->_identifier};
-                auto* last_item = func->_block_items.back().get();
-    
-                // Use dynamic_cast to ensure it is actually a ReturnStmt
-                auto* return_stmt = dynamic_cast<dcc::ReturnStmt*>(last_item);
-                
-
-                TackyVal ret_val = emit_tacky(return_stmt->get_expr());
-
-                /* add the final return instruction */
-                _instructions.push_back(std::make_unique<TackyReturn>(ret_val));
-                auto tacky_func = std::make_unique<TackyFunction>(identifier, std::move(_instructions));
-                return std::make_unique<tacky::TackyProgram>(std::move(tacky_func));
+                _instructions.clear();
+                auto* func = ast->_function_definition.get();
+                emit_tacky_function(func);
+                return std::make_unique<TackyProgram>(
+                    std::make_unique<TackyFunction>(std::string(func->_identifier), std::move(_instructions))
+                );
             }
 
 
