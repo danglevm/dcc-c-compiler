@@ -29,6 +29,17 @@ namespace dcc {
                     return std::make_unique<ExpressionStmt>(resolve_expr(stmt->get_expr()));
                 case dcc::StatementType::NULL_STMT:
                     return std::make_unique<NullStmt>();
+                case dcc::StatementType::IF_STMT: {
+                    const auto * if_stmt = static_cast<const IfStatement*>(stmt);
+                    /* resolve if condition */
+                    auto resolved_cond = resolve_expr(if_stmt->_condition_expr.get());
+                    auto resolved_then = resolve_statement(if_stmt->_then_stmt.get());
+                    std::unique_ptr<Statement> resolved_else = nullptr;
+                    if (if_stmt->_else_stmt) {
+                        resolved_else = resolve_statement(if_stmt->_else_stmt.get());
+                    }
+                    return std::make_unique<IfStatement>(std::move(resolved_cond), std::move(resolved_then), std::move(resolved_else));
+                }
                 default:
                     throw std::runtime_error("Unknown statement type encountered during resolution.");
             }
@@ -61,11 +72,21 @@ namespace dcc {
                 resolve_expr(binary->_left_expr.get()), 
                 resolve_expr(binary->_right_expr.get())
             );
-        }
+        
+        } else if (auto * condition = dynamic_cast<const Conditional*>(expr)) {
+            auto resolved_conditional = resolve_expr(condition->_condition_expr.get());
+            auto resolved_true = resolve_expr(condition->_true_expr.get());
+            auto resolved_false = resolve_expr(condition->_false_expr.get());
+
+            return std::make_unique<Conditional>(
+                    std::move(resolved_conditional), 
+                    std::move(resolved_true), 
+                    std::move(resolved_false)
+            );
+        } 
 
         else if (auto * constant = dynamic_cast<const Constant*>(expr)) {
             return std::make_unique<Constant>(constant->_value);
-
         }
 
         throw std::runtime_error("Unknown expression type");

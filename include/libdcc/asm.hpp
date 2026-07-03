@@ -428,7 +428,7 @@ namespace assembly {
  └── TackyFunction("bar")  ──► └── IRFunction("bar")
     */
 
-    class CodeGen {
+    class CodeGen : public tacky::TackyVisitor {
         public:
             std::unique_ptr<IRProgram> generate (const tacky::TackyProgram * tacky_program) {
                 const auto * tacky_func = tacky_program->_function.get();
@@ -437,6 +437,8 @@ namespace assembly {
             }
 
         private:
+            std::vector<std::unique_ptr<Instruction>> asm_instructions;
+
             std::unique_ptr<IRFunction> generate_function(const tacky::TackyFunction * tacky_func);
 
             std::unique_ptr<Operand> convert_val(const tacky::TackyVal& val);
@@ -460,6 +462,15 @@ namespace assembly {
                 }
                 throw std::runtime_error("Unknown TackyBinaryOp");
              }
+
+            void visit(tacky::TackyReturn* node) override;
+            void visit(tacky::TackyUnary* node) override;
+            void visit(tacky::TackyBinary* node) override;
+            void visit(tacky::Jump* node) override;
+            void visit(tacky::JumpIfZero* node) override;
+            void visit(tacky::JumpIfNotZero* node) override;
+            void visit(tacky::TackyCopy* node) override;
+            void visit(tacky::Label* node) override;
     };
     
 }

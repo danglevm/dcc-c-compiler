@@ -19,30 +19,63 @@ namespace {
 }
 
 namespace dcc {
-    struct Program;
-    struct Expression;
-    struct Statement;
-    struct Function;
+    struct Constant;
+    struct Var;
     struct UnaryOperator;
+    struct BinaryOperator;
+    struct Assignment;
+    struct Conditional;
+    struct DeclarationVariable;
+    struct ReturnStmt;
+    struct IfStatement;
+    struct ExpressionStmt;
+    struct NullStmt;
+    struct Function;
+    struct Program;
 
     enum class ExprType {
         CONSTANT,
         VAR,
         UNARY,
         BINARY,
-        ASSIGNMENT
+        ASSIGNMENT,
+        CONDITIONAL
     };
 
     enum class StatementType {
         RETURN,
         EXPRESSION,
-        NULL_STMT
+        NULL_STMT,
+        IF_STMT
     };
 
     enum class UnaryOpType { Complement, Negate, Not};
 
     enum class BinaryOpType { Add, Sub, Mul, Div, Rem, And, Or, Equal, NotEqual, 
                                 LessThan, LessOrEqual, GreaterThan, GreaterOrEqual };
+    class ASTVisitor {
+        public:
+            virtual ~ASTVisitor() = default;
+            /* Expressions inherited from Expr */
+            virtual void visit(Constant * node) = 0;
+            virtual void visit(Var * node) = 0;
+            virtual void visit(UnaryOperator* node) = 0;
+            virtual void visit(BinaryOperator* node) = 0;
+            virtual void visit(Assignment* node) = 0;
+            virtual void visit(Conditional* node) = 0;
+
+            /* Statements and Declarations */
+            virtual void visit(ReturnStmt* node) = 0;
+            virtual void visit(IfStatement* node) = 0;
+            virtual void visit(ExpressionStmt* node) = 0;
+            virtual void visit(NullStmt* node) = 0;
+            virtual void visit(DeclarationVariable* node) = 0;
+
+            // Top-level
+            virtual void visit(Function* node) = 0;
+            virtual void visit(Program* node) = 0;
+    };
+
 /*
     Left side is broad categories, abstract base class
     Right side is the concrete subclass
@@ -61,6 +94,7 @@ namespace dcc {
 
         /* for pretty printing */
         virtual void print(int indent = 0) const = 0;
+        virtual void accept(ASTVisitor& visitor) = 0;
     };
 
     struct Expr : public ASTNode {
@@ -77,6 +111,18 @@ namespace dcc {
         void print(int indent = 0) const override {
             std::cout << get_indent(indent) << ". Constant: " << _value << "\n";
         }
+
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
+    };
+
+    struct Var : public Expr {
+        std::string_view _identifier;
+
+        explicit Var(std::string_view identifier) : _identifier(identifier) {};
+        std::string_view get_identifier() { return _identifier; }
+        ExprType getExprType() const override { return ExprType::VAR; }
+        void print(int indent) const override {};
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct UnaryOperator : public Expr {
@@ -99,6 +145,7 @@ namespace dcc {
             }
             _expr->print(indent + 1);
         }
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct BinaryOperator : public Expr {
@@ -115,15 +162,7 @@ namespace dcc {
         Expr * getLeftExpr() const { return _left_expr.get(); }
         Expr * getRightExpr() const { return _right_expr.get(); }
         void print(int indent) const override {};
-    };
-
-    struct Var : public Expr {
-        std::string_view _identifier;
-
-        explicit Var(std::string_view identifier) : _identifier(identifier) {};
-        std::string_view get_identifier() { return _identifier; }
-        ExprType getExprType() const override { return ExprType::VAR; }
-        void print(int indent) const override {};
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct Assignment : public Expr {
@@ -137,6 +176,20 @@ namespace dcc {
         Expr * getRightExpr() const { return _right_expr.get(); }
         ExprType getExprType() const override { return ExprType::ASSIGNMENT; }
         void print(int indent) const override {};
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
+    };
+
+    struct Conditional : public Expr {
+        std::unique_ptr<Expr> _condition_expr;
+        std::unique_ptr<Expr> _true_expr;
+        std::unique_ptr<Expr> _false_expr;
+
+        explicit Conditional(std::unique_ptr<Expr> conditional_expr, std::unique_ptr<Expr> true_expr, std::unique_ptr<Expr> false_expr) :
+            _condition_expr(std::move(conditional_expr)), _true_expr(std::move(true_expr)), _false_expr(std::move(false_expr)) {};
+
+        ExprType getExprType () const override { return ExprType::CONDITIONAL; }
+        void print(int indent) const override {};
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct BlockItem : public ASTNode {
@@ -151,35 +204,6 @@ namespace dcc {
         void print(int indent = 0) const override {};
     };
 
-    struct ReturnStmt : public Statement {
-        std::unique_ptr<Expr> _expr;
-        explicit ReturnStmt(std::unique_ptr<Expr> expr) : _expr(std::move(expr)){};
-        void print(int indent = 0) const override {
-            if (_expr) {
-                std::cout << get_indent(indent) << ". ReturnStatement:\n ";
-                _expr->print(indent + 1);
-            }
-        }
-
-        Expr * get_expr() const override { return _expr.get(); }
-        StatementType get_statement_type() const override { return StatementType::RETURN; }
-    };
-
-    struct ExpressionStmt : public Statement {
-        std::unique_ptr<Expr> _expr;
-        explicit ExpressionStmt(std::unique_ptr<Expr> expr) : _expr(std::move(expr)){};
-        void print(int indent = 0) const override {};
-
-        Expr * get_expr() const override { return _expr.get(); }
-        StatementType get_statement_type() const override { return StatementType::EXPRESSION; }
-    };
-
-    struct NullStmt : public Statement {
-        void print(int indent = 0) const override {};
-        Expr * get_expr() const override { return nullptr; }
-        StatementType get_statement_type() const override { return StatementType::NULL_STMT; }
-    };
-    
     struct Declaration : public BlockItem {
         virtual ~Declaration() = default;
         void print(int indent = 0) const override {};
@@ -193,6 +217,52 @@ namespace dcc {
             : _identifier(std::move(identifier)), _initializer(std::move(initializer)) {}
         
         void print(int indent = 0) const override {};
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
+    };
+
+    struct ReturnStmt : public Statement {
+        std::unique_ptr<Expr> _expr;
+        explicit ReturnStmt(std::unique_ptr<Expr> expr) : _expr(std::move(expr)){};
+        void print(int indent = 0) const override {
+            if (_expr) {
+                std::cout << get_indent(indent) << ". ReturnStatement:\n ";
+                _expr->print(indent + 1);
+            }
+        }
+
+        Expr * get_expr() const override { return _expr.get(); }
+        StatementType get_statement_type() const override { return StatementType::RETURN; }
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
+    };
+
+    struct IfStatement : public Statement {
+        std::unique_ptr<Expr> _condition_expr; /* controlling expression */
+        std::unique_ptr<Statement> _then_stmt; /* statements following a then expression */
+        std::unique_ptr<Statement> _else_stmt; /* statements following an if expression */
+
+        explicit IfStatement(std::unique_ptr<Expr> condition_expr, std::unique_ptr<Statement> then_stmt, std::unique_ptr<Statement> else_stmt = nullptr) 
+            : _condition_expr(std::move(condition_expr)), _then_stmt(std::move(then_stmt)), _else_stmt(std::move(else_stmt)) {};
+
+        Expr * get_expr() const override { return _condition_expr.get(); }
+        StatementType get_statement_type() const override { return StatementType::IF_STMT; }
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
+    };
+
+    struct ExpressionStmt : public Statement {
+        std::unique_ptr<Expr> _expr;
+        explicit ExpressionStmt(std::unique_ptr<Expr> expr) : _expr(std::move(expr)){};
+        void print(int indent = 0) const override {};
+
+        Expr * get_expr() const override { return _expr.get(); }
+        StatementType get_statement_type() const override { return StatementType::EXPRESSION; }
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
+    };
+
+    struct NullStmt : public Statement {
+        void print(int indent = 0) const override {};
+        Expr * get_expr() const override { return nullptr; }
+        StatementType get_statement_type() const override { return StatementType::NULL_STMT; }
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct Function : public ASTNode {
@@ -209,6 +279,7 @@ namespace dcc {
             //     _stmt->print(indent + 2);
             // }
         }
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct Program : public ASTNode { 
@@ -222,6 +293,7 @@ namespace dcc {
                 _function_definition->print(indent + 1);
             }
         }
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
 
     /* recursive top-down parsing */

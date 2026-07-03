@@ -20,13 +20,16 @@ unary_operator = Complement | Negate
 namespace tacky {
     struct TackyFunction;
     struct TackyInstruction;
-    struct TackyProgram;
+    struct TackyReturn;
+    struct TackyUnary;
+    struct TackyBinary;
+    struct TackyCopy;
+    struct Jump;
+    struct JumpIfZero;
+    struct JumpIfNotZero;
+    struct Label;
 
-    enum class TackyUnaryOp {
-        COMPLEMENT,
-        NEGATION,
-        NOT
-    };
+    enum class TackyUnaryOp { COMPLEMENT, NEGATION, NOT};
 
     enum class TackyInstructionType {
         RET,
@@ -53,6 +56,20 @@ namespace tacky {
         GREATER_OR_EQUAL
     };
 
+    class TackyVisitor {
+    public:
+        /* this is for Assembly Gen, which takes this generated IR */
+        virtual ~TackyVisitor() = default;
+        virtual void visit(TackyReturn* node) = 0;
+        virtual void visit(TackyUnary* node) = 0;
+        virtual void visit(TackyBinary* node) = 0;
+        virtual void visit(TackyCopy* node) = 0;
+        virtual void visit(Jump* node) = 0;
+        virtual void visit(JumpIfZero* node) = 0;
+        virtual void visit(JumpIfNotZero* node) = 0;
+        virtual void visit(Label* node) = 0;
+    };
+
     /* need to think whether this should be virtual or not */
     struct TackyVar {
         std::string _identifier;
@@ -60,8 +77,8 @@ namespace tacky {
     };
 
     struct TackyConstant {
-        int _val;
-        explicit TackyConstant(int val) : _val(val) {};
+            int _val;
+            explicit TackyConstant(int val) : _val(val) {};
     };
 
     using TackyVal = std::variant<std::monostate, TackyConstant, TackyVar>;
@@ -86,13 +103,13 @@ namespace tacky {
 
     struct TackyInstruction : public TackyNode {
         virtual ~TackyInstruction() = default;
-        virtual TackyInstructionType get_instruction_type() const = 0;
+        virtual void accept(TackyVisitor& visitor) = 0;
     };
 
     struct TackyReturn : public TackyInstruction {
         TackyVal _val;
-        TackyReturn(TackyVal val) : _val(val){}; 
-        TackyInstructionType get_instruction_type() const { return TackyInstructionType::RET; }
+        TackyReturn(TackyVal val) : _val(val){};
+        void accept(TackyVisitor& visitor) override { visitor.visit(this); } 
     };
 
     struct TackyUnary : public TackyInstruction {
@@ -101,8 +118,7 @@ namespace tacky {
         TackyVal _dst;
         explicit TackyUnary(TackyUnaryOp unary_op, TackyVal src, TackyVal dst) :
             _unary_op(unary_op), _src(src), _dst(dst){};
-        TackyInstructionType get_instruction_type() const { return TackyInstructionType::UNARY; }
-
+        void accept(TackyVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct TackyBinary : public TackyInstruction {
@@ -112,46 +128,47 @@ namespace tacky {
         TackyVal _dst;
         explicit TackyBinary(TackyBinaryOp binary_op, TackyVal src1, TackyVal src2, TackyVal dst) :
             _binary_op(binary_op), _src1(src1), _src2(src2), _dst(dst) {};
-        TackyInstructionType get_instruction_type() const { return TackyInstructionType::BINARY; }
+        void accept(TackyVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct TackyCopy : public TackyInstruction {
         TackyVal _src;
         TackyVal _dst;
         explicit TackyCopy(TackyVal src, TackyVal dst) : _src(src), _dst(dst) {};
-        TackyInstructionType get_instruction_type() const { return TackyInstructionType::COPY; }
+        void accept(TackyVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct Jump : public TackyInstruction {
         std::string _target_identifier;
         explicit Jump(std::string target_identifier) : _target_identifier(target_identifier) {};
-        TackyInstructionType get_instruction_type() const { return TackyInstructionType::JUMP; }
+        void accept(TackyVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct JumpIfZero : public TackyInstruction {
         TackyVal _condition;
         std::string _target_identifier;
         explicit JumpIfZero(TackyVal condition, std::string target_identifier) : _condition(condition), _target_identifier(target_identifier){};
-        TackyInstructionType get_instruction_type() const { return TackyInstructionType::JUMP_IF_ZERO; }
+        void accept(TackyVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct JumpIfNotZero : public TackyInstruction {
         TackyVal _condition;
         std::string _target_identifier;
         explicit JumpIfNotZero(TackyVal condition, std::string target_identifier) : _condition(condition), _target_identifier(target_identifier){};
-        TackyInstructionType get_instruction_type() const { return TackyInstructionType::JUMP_IF_NOT_ZERO; }
+        void accept(TackyVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct Label : public TackyInstruction {
         std::string _identifier;
         explicit Label(std::string identifier) : _identifier(identifier) {};
-        TackyInstructionType get_instruction_type() const { return TackyInstructionType::LABEL; }
+        void accept(TackyVisitor& visitor) override { visitor.visit(this); }
     };
 
-    class TackyGen {
+    class TackyGen : public dcc::ASTVisitor {
         private:
             size_t _tmp_counter = 0;
             size_t _label_counter = 0;
+            TackyVal _current_val; /* shared memory space to pass the data back up the tree */
             std::vector<std::unique_ptr<TackyInstruction>> _instructions;
 
             std::string make_temporary_name() {
@@ -191,22 +208,45 @@ namespace tacky {
                 throw std::runtime_error("Unknown binary operator");
             }
 
-            TackyVal emit_tacky(dcc::Expr * expr);
-            void emit_tacky_for_block_item(dcc::BlockItem* item);
-            void emit_tacky_for_statement(dcc::Statement* stmt);
-            void emit_tacky_function(dcc::Function* func);
-
         public:
-            std::unique_ptr<TackyProgram> generate_tacky(const dcc::Program* ast) {
+            std::unique_ptr<TackyProgram> generate_tacky(dcc::Program* ast) {
                 _instructions.clear();
-                auto* func = ast->_function_definition.get();
-                emit_tacky_function(func);
+                _tmp_counter = 0;
+                _label_counter = 0;
+                ast->accept(*this);
+
+                auto* func = ast->_function_definition.get();                
                 return std::make_unique<TackyProgram>(
                     std::make_unique<TackyFunction>(std::string(func->_identifier), std::move(_instructions))
                 );
             }
 
+            /* current val is updated in these two cases*/
+            void visit(dcc::Constant * node) override {
+                _current_val = TackyConstant{node->_value};
+            }
+            void visit(dcc::Var * node) override {
+                _current_val = TackyVar(std::string(node->get_identifier()));
+            }
+            void visit(dcc::UnaryOperator* node) override;
+            void visit(dcc::BinaryOperator* node) override;
+            void visit(dcc::Assignment* node) override;
+            void visit(dcc::Conditional* node) override;
 
+            /* Statements and Declarations */
+            void visit(dcc::ReturnStmt* node) override;
+            void visit(dcc::IfStatement* node) override;
+            void visit(dcc::ExpressionStmt* node) override;
+            void visit(dcc::NullStmt* node) override {};
+            void visit(dcc::DeclarationVariable* node) override;
+            
+            // Top-level
+            void visit(dcc::Function* node) override;
+            void visit(dcc::Program* node) override {
+                if (node->_function_definition) {
+                    node->_function_definition->accept(*this);
+                }
+            }
     };
 }
 

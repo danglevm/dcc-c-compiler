@@ -12,6 +12,8 @@ namespace dcc {
         MAIN_KEYWORD,
         RETURN_KEYWORD,
         VOID_KEYWORD,
+        IF_KEYWORD,
+        ELSE_KEYWORD,
         IDENTIFIER,
         OPEN_PARENTHESIS,
         CLOSE_PARENTHESIS,
@@ -42,7 +44,9 @@ namespace dcc {
         LESSER, //<
         GREATER, //>
         LESSER_EQUAL, //<=
-        GREATER_EQUAL //>=
+        GREATER_EQUAL, //>=
+        QUESTION_MARK_DELIMITER,
+        COLON_DELIMITER
     };
 
     struct token {

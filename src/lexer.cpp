@@ -135,18 +135,27 @@ namespace dcc {
                     advance();
                     return token{token_type::OR, _source.substr(start_pos, _pos - start_pos), start_line, start_col};
                 }
+            case ':':
+                return token{token_type::COLON_DELIMITER, ":", start_line, start_col};
+            case '?':
+                return token{token_type::QUESTION_MARK_DELIMITER, "?", start_line, start_col};                
         }   
         /* invalid case */
         return token{token_type::INVALID, _source.substr(start_pos, _pos - start_pos), start_line, start_col};
     }
 
+    /* lexes the whole word */
     token_type Lexer::check_keyword(std::string_view text) {
         switch (text.length()) {
+            case 2:
+                if (text == "if") return token_type::IF_KEYWORD;
             case 3:
                 if (text == "int") return token_type::INT_KEYWORD;
                 break;
             case 4:
                 if (text == "void") return token_type::VOID_KEYWORD;
+                if (text == "else") return token_type::ELSE_KEYWORD;
+                break;
             case 6:
                 if (text == "return") return token_type::RETURN_KEYWORD;
                 break;

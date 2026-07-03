@@ -8,6 +8,7 @@
 #include <string>
 #include <libdcc/parser.hpp>
 
+
 namespace dcc {
     std::unique_ptr<Function> Parser::function() {
         consume(token_type::INT_KEYWORD, "Expected 'int' return type");
@@ -56,11 +57,42 @@ namespace dcc {
         } 
 
         /* deal with return; which is a null return statement */
+        /* null statement */
         else if (peek().token == token_type::SEMICOLON) {
             consume(token_type::SEMICOLON, "Expected semicolon");
             return std::make_unique<NullStmt>();
         }
         
+        /* if statements*/
+        else if (peek().token == token_type::IF_KEYWORD) {
+            consume(token_type::IF_KEYWORD, "Expected 'if' keyword");
+            consume(token_type::OPEN_PARENTHESIS, "Expected open parenthesis");
+            /* if expression */
+            std::unique_ptr<Expr> expr = parse_expr();
+            if (!expr) {
+                throw std::runtime_error("Cannot parse if expression");
+            } 
+
+            consume(token_type::CLOSE_PARENTHESIS, "Expected close parenthesis");
+
+            /* then statement*/
+            auto then_stmt = statement();
+            if (!then_stmt) {
+                throw std::runtime_error("Cannot parse if statement");
+            }
+
+            std::unique_ptr<Statement> else_stmt = nullptr;
+            if (peek().token == token_type::ELSE_KEYWORD) {
+                consume(token_type::ELSE_KEYWORD, "Expected else keyword");
+                else_stmt = statement();
+                if (!else_stmt) {
+                    throw std::runtime_error("Cannot parse else statement");
+                }
+            }
+
+            return std::make_unique<IfStatement>(std::move(expr), std::move(then_stmt), std::move(else_stmt));
+        }
+        /* expression statement */
         else {
             auto expr = parse_expr();
             if (!expr) {
@@ -144,15 +176,21 @@ namespace dcc {
         auto c = peek();
         while (get_precedence(c.token) >= min_prec) {
             if (c.token == token_type::ASSIGNMENT) {
-                consume(token_type::ASSIGNMENT, "Expected '='");
-                auto right = parse_expr(0);
+                auto op_token = consume(token_type::ASSIGNMENT, "Expected '='");
+                auto right = parse_expr(get_precedence(token_type::ASSIGNMENT));
                 if (!right) throw std::runtime_error("Expected expression after assignment operator");
                 left = std::make_unique<Assignment>(std::move(left), std::move(right));
+            } else if (c.token == token_type::QUESTION_MARK_DELIMITER) {
+                consume(token_type::QUESTION_MARK_DELIMITER, "Expected '?'");
+                auto middle = parse_expr(0); /* this middle expression is wrapped by `?` and `:` */
+                consume(token_type::COLON_DELIMITER, "Expected ':'");
+                auto right = parse_expr(get_precedence(c.token));
+                left = std::make_unique<Conditional>(std::move(left), std::move(middle), std::move(right));
             } else {
                 auto op_token = consume(c.token, "Expected operator");
                 BinaryOpType binary_op;
 
-                /* Contextually it must be a unary negation */
+                /* Contextually it must be a binary operation */
                 switch (op_token.token) {
                     case token_type::ADDITION: binary_op = BinaryOpType::Add; break;
                     case token_type::MINUS: binary_op = BinaryOpType::Sub; break;
@@ -200,6 +238,8 @@ namespace dcc {
             return 10;
         case token_type::OR:
             return 5;
+        case token_type::QUESTION_MARK_DELIMITER:
+            return 3;
         case token_type::ASSIGNMENT:
             return 1;
         default:

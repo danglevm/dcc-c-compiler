@@ -47,132 +47,134 @@ namespace assembly {
         }
     }
 
-    std::unique_ptr<IRFunction> CodeGen::generate_function(const tacky::TackyFunction * tacky_func) {
-        auto& tacky_instructions = tacky_func->_instructions;
-        std::vector<std::unique_ptr<Instruction>> asm_instructions;
-        for (const auto& instr : tacky_instructions) {
-            if (instr->get_instruction_type() == tacky::TackyInstructionType::RET) {
-                auto* ret_inst = static_cast<tacky::TackyReturn*>(instr.get());
-                // TACKY: Return(val)
-                // ASM:   Mov(val, %eax) -> Ret
-                asm_instructions.push_back(std::make_unique<Mov>(
-                    convert_val(ret_inst->_val),
-                    std::make_unique<Register>(RegASM::AX) // Return values must go in AX
-                ));
-                asm_instructions.push_back(std::make_unique<Ret>());
-            } else if (instr->get_instruction_type() == tacky::TackyInstructionType::UNARY) {
-                auto* unary_inst = static_cast<tacky::TackyUnary*>(instr.get());
+    void CodeGen::visit(tacky::TackyReturn* node) {
+        asm_instructions.push_back(std::make_unique<Mov>(
+            convert_val(node->_val),
+            std::make_unique<Register>(RegASM::AX) // Return values must go in AX
+        ));
+        asm_instructions.push_back(std::make_unique<Ret>());
+    }
 
-                /* !x is equivalent to x == 0 */
-                if (unary_inst->_unary_op == tacky::TackyUnaryOp::NOT) {
-                    asm_instructions.push_back(std::make_unique<Cmp>(
-                        std::make_unique<Immediate>(0),                        
-                        convert_val(unary_inst->_src)                    
-                    ));
+    void CodeGen::visit(tacky::TackyUnary* node) {
+        if (node->_unary_op == tacky::TackyUnaryOp::NOT) {
+            asm_instructions.push_back(std::make_unique<Cmp>(
+                std::make_unique<Immediate>(0),                        
+                convert_val(node->_src)                    
+            ));
 
-                    asm_instructions.push_back(std::make_unique<Mov>(
-                        std::make_unique<Immediate>(0),
-                        convert_val(unary_inst->_dst)
-                    ));
+            asm_instructions.push_back(std::make_unique<Mov>(
+                std::make_unique<Immediate>(0),
+                convert_val(node->_dst)
+            ));
 
-                    asm_instructions.push_back(std::make_unique<SetCC>(
-                        assembly::CondCode::E,
-                        convert_val(unary_inst->_dst)
-                    ));
+            asm_instructions.push_back(std::make_unique<SetCC>(
+                assembly::CondCode::E,
+                convert_val(node->_dst)
+            ));
 
-                } else {
-                    asm_instructions.push_back(std::make_unique<Mov>(
-                        convert_val(unary_inst->_src), 
-                        convert_val(unary_inst->_dst)
-                    ));
-                    asm_instructions.push_back(std::make_unique<UnaryASM>(
-                        convert_op(unary_inst->_unary_op), 
-                        convert_val(unary_inst->_dst)
-                    ));
-                }
+        } else {
+            asm_instructions.push_back(std::make_unique<Mov>(
+                convert_val(node->_src), 
+                convert_val(node->_dst)
+            ));
+            asm_instructions.push_back(std::make_unique<UnaryASM>(
+                convert_op(node->_unary_op), 
+                convert_val(node->_dst)
+            ));
+        }
+    }
+
+    void CodeGen::visit(tacky::TackyBinary* node) {
+        if (node->_binary_op == tacky::TackyBinaryOp::DIVIDE || node->_binary_op == tacky::TackyBinaryOp::REMAINDER) {
+            asm_instructions.push_back(std::make_unique<Mov>(
+                convert_val(node->_src1), 
+                std::make_unique<Register>(RegASM::AX)
+            ));
+            asm_instructions.push_back(std::make_unique<Cdq>());
+            asm_instructions.push_back(std::make_unique<Idiv>(convert_val(node->_src2)));
+
+            RegASM asm_reg = (node->_binary_op == tacky::TackyBinaryOp::DIVIDE) ? RegASM::AX : RegASM::DX; 
+
+            asm_instructions.push_back(std::make_unique<Mov>(
+                std::make_unique<Register>(asm_reg),
+                convert_val(node->_dst)
+            ));
+
+        } else if (is_relational_op(node->_binary_op)) {
+            asm_instructions.push_back(std::make_unique<Cmp>(
+                convert_val(node->_src2),
+                convert_val(node->_src1)
+            ));
+
+            asm_instructions.push_back(std::make_unique<Mov>(
+                std::make_unique<Immediate>(0),
+                convert_val(node->_dst)
+            ));                     
         
-            } else if (instr->get_instruction_type() == tacky::TackyInstructionType::BINARY) {
-                auto* binary_inst = static_cast<tacky::TackyBinary*>(instr.get());
-                if (binary_inst->_binary_op == tacky::TackyBinaryOp::DIVIDE || binary_inst->_binary_op == tacky::TackyBinaryOp::REMAINDER) {
-                    asm_instructions.push_back(std::make_unique<Mov>(
-                        convert_val(binary_inst->_src1), 
-                        std::make_unique<Register>(RegASM::AX)
-                    ));
-                    asm_instructions.push_back(std::make_unique<Cdq>());
-                    asm_instructions.push_back(std::make_unique<Idiv>(convert_val(binary_inst->_src2)));
+            asm_instructions.push_back(std::make_unique<SetCC>(
+                convert_to_condition_code(node->_binary_op),
+                convert_val(node->_dst)
+            ));
+        } else {
+            /* binary instruction with binary_operator, src2, dst - existing arithmetic logic */
+            asm_instructions.push_back(std::make_unique<Mov>( 
+                convert_val(node->_src1),
+                convert_val(node->_dst)
+            ));
+            asm_instructions.push_back(std::make_unique<BinaryASM>(
+                convert_op(node->_binary_op),
+                convert_val(node->_src2),
+                convert_val(node->_dst)
+            ));
+        }
+    }
 
-                    RegASM asm_reg = (binary_inst->_binary_op == tacky::TackyBinaryOp::DIVIDE) ? RegASM::AX : RegASM::DX; 
+    void CodeGen::visit(tacky::Jump* node) {
+        asm_instructions.push_back(std::make_unique<Jmp>(node->_target_identifier));
+    }
 
-                    asm_instructions.push_back(std::make_unique<Mov>(
-                        std::make_unique<Register>(asm_reg),
-                        convert_val(binary_inst->_dst)
-                    ));
+    void CodeGen::visit(tacky::JumpIfZero* node) {
+        asm_instructions.push_back(std::make_unique<Cmp>(
+            std::make_unique<Immediate>(0),
+            convert_val(node->_condition)
+        ));
 
-                } else if (is_relational_op(binary_inst->_binary_op)) {
-                    asm_instructions.push_back(std::make_unique<Cmp>(
-                        convert_val(binary_inst->_src2),
-                        convert_val(binary_inst->_src1)
-                    ));
+        asm_instructions.push_back(std::make_unique<JmpCC>(
+            CondCode::E,
+            node->_target_identifier
+        ));
+    }
 
-                    asm_instructions.push_back(std::make_unique<Mov>(
-                        std::make_unique<Immediate>(0),
-                        convert_val(binary_inst->_dst)
-                    ));                     
-                
-                    asm_instructions.push_back(std::make_unique<SetCC>(
-                        convert_to_condition_code(binary_inst->_binary_op),
-                        convert_val(binary_inst->_dst)
-                    ));
-                } else {
-                    /* binary instruction with binary_operator, src2, dst - existing arithmetic logic */
-                    asm_instructions.push_back(std::make_unique<Mov>( 
-                        convert_val(binary_inst->_src1),
-                        convert_val(binary_inst->_dst)
-                    ));
-                    asm_instructions.push_back(std::make_unique<BinaryASM>(
-                        convert_op(binary_inst->_binary_op),
-                        convert_val(binary_inst->_src2),
-                        convert_val(binary_inst->_dst)
-                    ));
-                }
-            } else if (instr->get_instruction_type() == tacky::TackyInstructionType::JUMP) {
-                auto * jump_instr = static_cast<tacky::Jump*>(instr.get());
-                asm_instructions.push_back(std::make_unique<Jmp>(jump_instr->_target_identifier));
-            } else if (instr->get_instruction_type() == tacky::TackyInstructionType::JUMP_IF_ZERO) {
-                auto * jump_instr = static_cast<tacky::JumpIfZero*>(instr.get());
-                asm_instructions.push_back(std::make_unique<Cmp>(
-                    std::make_unique<Immediate>(0),
-                    convert_val(jump_instr->_condition)
-                ));
+    void CodeGen::visit(tacky::JumpIfNotZero* node) {
+        asm_instructions.push_back(std::make_unique<Cmp>(
+            std::make_unique<Immediate>(0),
+            convert_val(node->_condition)
+        ));
 
-                asm_instructions.push_back(std::make_unique<JmpCC>(
-                    CondCode::E,
-                    jump_instr->_target_identifier
-                ));
-            
-            } else if (instr->get_instruction_type() == tacky::TackyInstructionType::JUMP_IF_NOT_ZERO) {
-                auto * jump_instr = static_cast<tacky::JumpIfNotZero*>(instr.get());
-                asm_instructions.push_back(std::make_unique<Cmp>(
-                    std::make_unique<Immediate>(0),
-                    convert_val(jump_instr->_condition)
-                ));
+        asm_instructions.push_back(std::make_unique<JmpCC>(
+            CondCode::NE,
+            node->_target_identifier
+        ));
+    }
 
-                asm_instructions.push_back(std::make_unique<JmpCC>(
-                    CondCode::NE,
-                    jump_instr->_target_identifier
-                ));
-            } else if (instr->get_instruction_type() == tacky::TackyInstructionType::COPY) {
-                auto* copy_inst = static_cast<tacky::TackyCopy*>(instr.get());
-                asm_instructions.push_back(std::make_unique<Mov>(
-                    convert_val(copy_inst->_src),
-                    convert_val(copy_inst->_dst)
-                ));
-            } else if (instr->get_instruction_type() == tacky::TackyInstructionType::LABEL) {
-                auto* label_instr = static_cast<tacky::Label*>(instr.get());
-                asm_instructions.push_back(std::make_unique<Label>(
-                    label_instr->_identifier
-                ));
-            } 
+    void CodeGen::visit(tacky::TackyCopy* node) {
+        asm_instructions.push_back(std::make_unique<Mov>(
+            convert_val(node->_src),
+            convert_val(node->_dst)
+        ));
+    }
+
+    void CodeGen::visit(tacky::Label* node) {
+        asm_instructions.push_back(std::make_unique<Label>(
+            node->_identifier
+        ));
+    }
+
+    std::unique_ptr<IRFunction> CodeGen::generate_function(const tacky::TackyFunction * tacky_func) {
+        asm_instructions.clear();
+
+        for (const auto& instr : tacky_func->_instructions) {
+            instr->accept(*this);
         }
 
         int cur_offset = 0;
