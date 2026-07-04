@@ -247,6 +247,16 @@ namespace tacky {
                     node->_function_definition->accept(*this);
                 }
             }
+
+            void visit(dcc::CompoundStmt* node) override {
+                node->_block->accept(*this);
+            }
+
+            void visit(dcc::Block* node) override {
+                for (const auto& item : node->_block_items) {
+                    item->accept(*this);
+                }
+            }
     };
 }
 

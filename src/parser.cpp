@@ -18,18 +18,23 @@ namespace dcc {
         consume(token_type::VOID_KEYWORD, "Expected 'void' keyword");
         consume(token_type::CLOSE_PARENTHESIS, "Expected ')'");
 
+        std::unique_ptr<Block> function_body = parse_block();
+
+        return std::make_unique<Function>(identifier_token.text, std::move(function_body));
+    }
+
+    std::unique_ptr<Block> Parser::parse_block() {
         consume(token_type::OPEN_BRACE, "Expected '{'");
 
-        std::vector<std::unique_ptr<BlockItem>> function_body;
+        std::vector<std::unique_ptr<BlockItem>> block_items;
 
         while (peek().token != token_type::CLOSE_BRACE) {
-            function_body.push_back(parse_block_item());
+            block_items.push_back(parse_block_item());
         }
 
-        consume(token_type::CLOSE_BRACE, "Expected: '}");
+        consume(token_type::CLOSE_BRACE, "Expected '}'");
 
-        auto func = std::make_unique<Function>(identifier_token.text, std::move(function_body));
-        return func;
+        return std::make_unique<Block>(std::move(block_items));
     }
 
     std::unique_ptr<BlockItem> Parser::parse_block_item() {
@@ -39,6 +44,7 @@ namespace dcc {
             return statement();   // Returns a Statement AST node
         }
     }
+
 
     std::unique_ptr<Statement> Parser::statement() {
         /* return statement */
@@ -61,6 +67,11 @@ namespace dcc {
         else if (peek().token == token_type::SEMICOLON) {
             consume(token_type::SEMICOLON, "Expected semicolon");
             return std::make_unique<NullStmt>();
+        }
+
+        /* block / compound statement */
+        else if (peek().token == token_type::OPEN_BRACE) {
+            return std::make_unique<CompoundStmt>(parse_block());
         }
         
         /* if statements*/

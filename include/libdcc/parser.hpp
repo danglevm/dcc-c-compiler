@@ -27,27 +27,14 @@ namespace dcc {
     struct Conditional;
     struct DeclarationVariable;
     struct ReturnStmt;
+    struct CompoundStmt;
     struct IfStatement;
     struct ExpressionStmt;
     struct NullStmt;
     struct Function;
     struct Program;
-
-    enum class ExprType {
-        CONSTANT,
-        VAR,
-        UNARY,
-        BINARY,
-        ASSIGNMENT,
-        CONDITIONAL
-    };
-
-    enum class StatementType {
-        RETURN,
-        EXPRESSION,
-        NULL_STMT,
-        IF_STMT
-    };
+    struct Block;
+    struct BlockItem;
 
     enum class UnaryOpType { Complement, Negate, Not};
 
@@ -68,8 +55,10 @@ namespace dcc {
             virtual void visit(ReturnStmt* node) = 0;
             virtual void visit(IfStatement* node) = 0;
             virtual void visit(ExpressionStmt* node) = 0;
+            virtual void visit(CompoundStmt* node) = 0;
             virtual void visit(NullStmt* node) = 0;
             virtual void visit(DeclarationVariable* node) = 0;
+            virtual void visit(Block* node) = 0;
 
             // Top-level
             virtual void visit(Function* node) = 0;
@@ -99,14 +88,12 @@ namespace dcc {
 
     struct Expr : public ASTNode {
         virtual ~Expr() = default;
-        virtual ExprType getExprType() const = 0;
     };
 
     struct Constant : public Expr {
         int _value = 0;
         explicit Constant(const int value) : _value(value){};
 
-        ExprType getExprType() const { return ExprType::CONSTANT; }
 
         void print(int indent = 0) const override {
             std::cout << get_indent(indent) << ". Constant: " << _value << "\n";
@@ -120,7 +107,6 @@ namespace dcc {
 
         explicit Var(std::string_view identifier) : _identifier(identifier) {};
         std::string_view get_identifier() { return _identifier; }
-        ExprType getExprType() const override { return ExprType::VAR; }
         void print(int indent) const override {};
         void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
@@ -133,7 +119,6 @@ namespace dcc {
 
         UnaryOpType getUnaryOp() const { return _unary_operator;}
         Expr * get_inner_expr() const { return _expr.get();}
-        ExprType getExprType() const { return ExprType::UNARY; }
 
         void print (int indent = 0) const override {
             if (_expr) {
@@ -157,7 +142,6 @@ namespace dcc {
                                 std::unique_ptr<Expr> left_expr,
                                 std::unique_ptr<Expr> right_expr) :
                                 _bin_op(bin_op), _left_expr(std::move(left_expr)), _right_expr(std::move(right_expr)) {};
-        ExprType getExprType() const override { return ExprType::BINARY; }
         BinaryOpType getBinOp() const { return _bin_op; }
         Expr * getLeftExpr() const { return _left_expr.get(); }
         Expr * getRightExpr() const { return _right_expr.get(); }
@@ -174,7 +158,6 @@ namespace dcc {
 
         Expr * getLeftExpr() const { return _left_expr.get(); }
         Expr * getRightExpr() const { return _right_expr.get(); }
-        ExprType getExprType() const override { return ExprType::ASSIGNMENT; }
         void print(int indent) const override {};
         void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
@@ -187,10 +170,24 @@ namespace dcc {
         explicit Conditional(std::unique_ptr<Expr> conditional_expr, std::unique_ptr<Expr> true_expr, std::unique_ptr<Expr> false_expr) :
             _condition_expr(std::move(conditional_expr)), _true_expr(std::move(true_expr)), _false_expr(std::move(false_expr)) {};
 
-        ExprType getExprType () const override { return ExprType::CONDITIONAL; }
         void print(int indent) const override {};
         void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
+
+    struct BlockBase : public ASTNode {
+        void print(int indent = 0) const override {};
+    };
+
+    struct Block : public BlockBase {
+        std::vector<std::unique_ptr<BlockItem>> _block_items;
+        void print(int indent = 0) const override {};      
+        
+        explicit Block(std::vector<std::unique_ptr<BlockItem>> block_items) : _block_items(std::move(block_items)){};
+
+        Expr * get_expr() const { return nullptr; }
+
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
+    };  
 
     struct BlockItem : public ASTNode {
         void print(int indent = 0) const override {};
@@ -199,8 +196,6 @@ namespace dcc {
     struct Statement : public BlockItem {
         virtual ~Statement() = default;
         virtual Expr * get_expr() const = 0;
-        virtual StatementType get_statement_type() const = 0;
-
         void print(int indent = 0) const override {};
     };
 
@@ -231,7 +226,6 @@ namespace dcc {
         }
 
         Expr * get_expr() const override { return _expr.get(); }
-        StatementType get_statement_type() const override { return StatementType::RETURN; }
         void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
 
@@ -244,7 +238,6 @@ namespace dcc {
             : _condition_expr(std::move(condition_expr)), _then_stmt(std::move(then_stmt)), _else_stmt(std::move(else_stmt)) {};
 
         Expr * get_expr() const override { return _condition_expr.get(); }
-        StatementType get_statement_type() const override { return StatementType::IF_STMT; }
         void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
 
@@ -254,22 +247,28 @@ namespace dcc {
         void print(int indent = 0) const override {};
 
         Expr * get_expr() const override { return _expr.get(); }
-        StatementType get_statement_type() const override { return StatementType::EXPRESSION; }
+        void accept(ASTVisitor& visitor) override { visitor.visit(this); }
+    };
+
+    struct CompoundStmt : public Statement {
+        std::unique_ptr<Block> _block;
+        explicit CompoundStmt(std::unique_ptr<Block> block) : _block(std::move(block)) {};
+
+        Expr * get_expr() const override { return nullptr; }
         void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct NullStmt : public Statement {
         void print(int indent = 0) const override {};
         Expr * get_expr() const override { return nullptr; }
-        StatementType get_statement_type() const override { return StatementType::NULL_STMT; }
         void accept(ASTVisitor& visitor) override { visitor.visit(this); }
     };
 
     struct Function : public ASTNode {
         std::string_view _identifier;
-        std::vector<std::unique_ptr<BlockItem>> _block_items;
-        explicit Function(const std::string_view identifier, std::vector<std::unique_ptr<BlockItem>> block_items) :
-            _identifier(std::move(identifier)), _block_items(std::move(block_items)){};
+        std::unique_ptr<Block> _block;
+        explicit Function(const std::string_view identifier, std::unique_ptr<Block> block) :
+            _identifier(std::move(identifier)), _block(std::move(block)){};
         void print(int indent = 0) const override {
             std::cout << get_indent(indent) << "Function Declaration: " << _identifier << "\n";
             std::cout << get_indent(indent + 1) << "Returns: int\n";
@@ -361,6 +360,8 @@ namespace dcc {
             std::unique_ptr<Expr> parse_factor();
 
             std::unique_ptr<BlockItem> parse_block_item();
+
+            std::unique_ptr<Block> parse_block();
 
             std::unique_ptr<Declaration> declaration();
 

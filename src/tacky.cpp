@@ -183,7 +183,7 @@ namespace tacky {
     }
 
     void TackyGen::visit(dcc::Function* func) {
-        for (const auto& block_item : func->_block_items) {
+        for (const auto& block_item : func->_block->_block_items) {
             block_item->accept(*this);
         }
 

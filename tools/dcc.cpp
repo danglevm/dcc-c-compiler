@@ -179,7 +179,7 @@ int main(int argc, char * argv[]) {
 
     /* semantic analysis, type checking, lookups, scope resolution */
     dcc::SemanticAnalyzer analyzer;
-    auto resolved_ast = analyzer.resolve_program(ast.get());
+    ast->accept(analyzer);
 
     if (validate) {
         if (fs::exists((pp_path))) fs::remove(pp_path);

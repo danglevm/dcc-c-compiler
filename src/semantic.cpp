@@ -2,94 +2,120 @@
 #include <memory>
 
 namespace dcc {
-    std::unique_ptr<DeclarationVariable> SemanticAnalyzer::resolve_declaration(const DeclarationVariable* decl) {
-        auto name = std::string(decl->_identifier);
-        if (_variable_map.count(name)) {
+    void SemanticAnalyzer::visit(Program * node) {
+        _variable_map.clear();
+        /* global scope by the program */
+        _variable_maps.push_back({});
+
+        node->_function_definition->accept(*this);
+        /* close the global block */
+        _variable_maps.pop_back();
+    }
+
+    void SemanticAnalyzer::visit(Function * node) {
+        node->_block->accept(*this);
+    }
+
+    void SemanticAnalyzer::visit(Block * node) {
+        _variable_maps.push_back({});
+
+        std::vector<std::unique_ptr<BlockItem>> resolved_items;
+        for (const auto &item : node->_block_items) {
+            item->accept(*this);
+            resolved_items.push_back(std::move(_result_block_item));
+        }
+
+        _variable_maps.pop_back();
+        _result_block = std::make_unique<Block>(std::move(resolved_items));
+    }
+
+    void SemanticAnalyzer::visit(BinaryOperator* node) {
+        _result_expr = std::make_unique<BinaryOperator>(
+            node->_bin_op, 
+            resolve(node->_left_expr.get()), 
+            resolve(node->_right_expr.get())
+        );
+    }
+
+    void SemanticAnalyzer::visit(UnaryOperator * node) {
+        _result_expr = std::make_unique<UnaryOperator>(
+            node->getUnaryOp(), 
+            resolve(node->get_inner_expr())
+        );
+    }
+
+    void SemanticAnalyzer::visit(Conditional* node) {
+        _result_expr = std::make_unique<Conditional>(
+            std::move(resolve(node->_condition_expr.get())), 
+            std::move(resolve(node->_true_expr.get())), 
+            std::move(resolve(node->_false_expr.get()))
+        );
+    }
+
+    void SemanticAnalyzer::visit(Var* node) {
+        std::string name = std::string(node->_identifier);
+        _result_expr = std::make_unique<Var>(lookup_variable(name));
+    }
+
+    void SemanticAnalyzer::visit(Constant* node) {
+        _result_expr = std::make_unique<Constant>(node->_value);
+    }
+
+    void SemanticAnalyzer::visit(DeclarationVariable* node) {
+        auto name = std::string(node->_identifier);
+        /* checks the innermost scope */
+        if (_variable_maps.back().count(name)) {
             throw std::runtime_error("Variable already declared: " + name);
         }
-        auto unique_name = make_temporary_var_name(decl->_identifier);
-        _variable_map[name] = unique_name;
+        auto unique_name = make_temporary_var_name(node->_identifier);
+
+        /* write to innermost scope */
+        _variable_maps.back()[name] = unique_name;
 
         std::unique_ptr<Expr> init = nullptr;
-        if (decl->_initializer != nullptr) {
-            init = resolve_expr(decl->_initializer.get());
+        if (node->_initializer != nullptr) {
+            init = resolve(node->_initializer.get());
         }
 
-        return std::make_unique<DeclarationVariable>(unique_name, std::move(init));
-    };
-
-    std::unique_ptr<Statement> SemanticAnalyzer::resolve_statement(const Statement * stmt) {
-            if (!stmt) {
-                throw std::runtime_error("Encountered null Statement pointer during resolution.");
-            }
-            switch (stmt->get_statement_type()) {
-                case dcc::StatementType::RETURN:
-                    return std::make_unique<ReturnStmt>(resolve_expr(stmt->get_expr()));
-                case dcc::StatementType::EXPRESSION:
-                    return std::make_unique<ExpressionStmt>(resolve_expr(stmt->get_expr()));
-                case dcc::StatementType::NULL_STMT:
-                    return std::make_unique<NullStmt>();
-                case dcc::StatementType::IF_STMT: {
-                    const auto * if_stmt = static_cast<const IfStatement*>(stmt);
-                    /* resolve if condition */
-                    auto resolved_cond = resolve_expr(if_stmt->_condition_expr.get());
-                    auto resolved_then = resolve_statement(if_stmt->_then_stmt.get());
-                    std::unique_ptr<Statement> resolved_else = nullptr;
-                    if (if_stmt->_else_stmt) {
-                        resolved_else = resolve_statement(if_stmt->_else_stmt.get());
-                    }
-                    return std::make_unique<IfStatement>(std::move(resolved_cond), std::move(resolved_then), std::move(resolved_else));
-                }
-                default:
-                    throw std::runtime_error("Unknown statement type encountered during resolution.");
-            }
+        _result_decl = std::make_unique<DeclarationVariable>(unique_name, std::move(init));
     }
 
-    /* recursively resolve all expr statements by replacing variable name with unique identifer from variable map */
-    std::unique_ptr<Expr> SemanticAnalyzer::resolve_expr(const Expr* expr) {
-        /* runtime type safety*/
-        if (auto* assign = dynamic_cast<const Assignment*>(expr)) {
-
-            //left side must be a variable or illegal
-            auto* left_var = dynamic_cast<const Var*>(assign->_left_expr.get());
-            if (!left_var) {
-                throw std::runtime_error("Invalid lvalue in assignment: left side must be a variable.");
-            }
-            auto resolved_left = resolve_expr(assign->_left_expr.get());
-            auto resolved_right = resolve_expr(assign->_right_expr.get());
-            return std::make_unique<Assignment>(std::move(resolved_left), std::move(resolved_right));
-        } else if (auto* var = dynamic_cast<const Var*>(expr)) {
-            if (_variable_map.count(std::string(var->_identifier))) {
-                return std::make_unique<Var>(_variable_map[std::string(var->_identifier)]);
-            } else {
-                throw std::runtime_error("Undeclared variable: " + std::string(var->_identifier));
-            }
-        } else if (auto* unary = dynamic_cast<const UnaryOperator*>(expr)) {
-            return std::make_unique<UnaryOperator>(unary->getUnaryOp(), resolve_expr(unary->get_inner_expr()));
-        } else if (auto* binary = dynamic_cast<const BinaryOperator*>(expr)) {
-            return std::make_unique<BinaryOperator>(
-                binary->_bin_op, 
-                resolve_expr(binary->_left_expr.get()), 
-                resolve_expr(binary->_right_expr.get())
-            );
-        
-        } else if (auto * condition = dynamic_cast<const Conditional*>(expr)) {
-            auto resolved_conditional = resolve_expr(condition->_condition_expr.get());
-            auto resolved_true = resolve_expr(condition->_true_expr.get());
-            auto resolved_false = resolve_expr(condition->_false_expr.get());
-
-            return std::make_unique<Conditional>(
-                    std::move(resolved_conditional), 
-                    std::move(resolved_true), 
-                    std::move(resolved_false)
-            );
-        } 
-
-        else if (auto * constant = dynamic_cast<const Constant*>(expr)) {
-            return std::make_unique<Constant>(constant->_value);
+    void SemanticAnalyzer::visit(Assignment* node) {
+        //left side must be a variable or illegal
+        auto* left_var = dynamic_cast<const Var*>(node->_left_expr.get());
+        if (!left_var) {
+            throw std::runtime_error("Invalid lvalue in assignment: left side must be a variable.");
         }
-
-        throw std::runtime_error("Unknown expression type");
+        auto resolved_left = resolve(node->_left_expr.get());
+        auto resolved_right = resolve(node->_right_expr.get());
+        _result_expr = std::make_unique<Assignment>(std::move(resolved_left), std::move(resolved_right));
+    }
+    
+    void SemanticAnalyzer::visit(ReturnStmt* node) {
+        _result_stmt = std::make_unique<ReturnStmt>(std::move(resolve(node->get_expr())));
     }
 
+    void SemanticAnalyzer::visit(ExpressionStmt* node) {
+        _result_stmt = std::make_unique<ExpressionStmt>(std::move(resolve(node->get_expr())));
+    }
+
+    void SemanticAnalyzer::visit(NullStmt* node) {
+       _result_stmt = std::make_unique<NullStmt>();
+    }
+
+    void SemanticAnalyzer::visit(CompoundStmt* node) {
+        node->_block->accept(*this);
+        // Add _result_block here
+        _result_stmt = std::make_unique<CompoundStmt>(std::move(_result_block));
+    }
+
+    void SemanticAnalyzer::visit(IfStatement* node) {
+        auto resolved_cond = resolve(node->_condition_expr.get());
+        auto resolved_then = resolve(node->_then_stmt.get());
+        std::unique_ptr<Statement> resolved_else = nullptr;
+        if (node->_else_stmt) {
+            resolved_else = resolve(node->_else_stmt.get());
+        }
+        _result_stmt = std::make_unique<IfStatement>(std::move(resolved_cond), std::move(resolved_then), std::move(resolved_else));
+    }
 }
